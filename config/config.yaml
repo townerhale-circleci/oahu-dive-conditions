@@ -1,0 +1,126 @@
+# Oahu Dive Conditions Configuration
+# Thresholds, schedules, and delivery preferences
+
+# Scoring thresholds
+scoring:
+  # Wave Power Index thresholds (height² × period)
+  wpi_thresholds:
+    excellent: 20    # WPI <= 20 is excellent
+    good: 40         # WPI <= 40 is good
+    fair: 80         # WPI <= 80 is fair
+    poor: 150        # WPI <= 150 is poor (above is unsafe)
+
+  # Wind speed thresholds (mph)
+  wind_thresholds:
+    calm: 5          # 0-5 mph is calm
+    light: 10        # 5-10 mph is light
+    moderate: 15     # 10-15 mph is moderate
+    strong: 20       # 15-20 mph is strong (above impacts diving)
+
+  # Stream discharge thresholds for visibility impact (cfs)
+  discharge_thresholds:
+    normal: 10       # < 10 cfs is normal/clear
+    elevated: 25     # 10-25 cfs is elevated
+    high: 50         # 25-50 cfs is high (reduced visibility)
+    flood: 100       # > 100 cfs is flood stage (poor visibility)
+
+  # Score weights (must sum to 1.0)
+  weights:
+    wave_power: 0.35
+    wind: 0.25
+    visibility: 0.20
+    tide: 0.10
+    time_of_day: 0.10
+
+  # Grade boundaries
+  grades:
+    A: 85
+    B: 70
+    C: 55
+    D: 40
+    F: 0
+
+# Safety gates - conditions that result in automatic "unsafe" rating
+safety:
+  # Absolute wave height limit regardless of site threshold (ft)
+  absolute_max_wave_height: 8.0
+
+  # Default site max if not specified (ft)
+  default_max_safe_wave_height: 6.0
+
+  # Gates that trigger unsafe rating
+  gates:
+    - high_surf_warning
+    - brown_water_advisory
+    - wave_height_exceeded
+
+# Schedule settings
+schedule:
+  # Daily digest generation time (Hawaii time, HST = UTC-10)
+  daily_digest_time: "05:30"
+
+  # Days to run (0=Monday, 6=Sunday)
+  active_days: [0, 1, 2, 3, 4, 5, 6]
+
+  # Timezone
+  timezone: "Pacific/Honolulu"
+
+# Digest preferences
+digest:
+  # Number of top sites to include
+  top_sites_count: 5
+
+  # Include sites by coast breakdown
+  include_coast_breakdown: true
+
+  # Include detailed conditions for top sites
+  include_conditions_detail: true
+
+  # Include tide schedule
+  include_tide_schedule: true
+
+  # Include weather alerts section
+  include_alerts: true
+
+  # Minimum grade to include in "diveable" list
+  min_diveable_grade: "D"
+
+# Delivery settings (API keys should be in environment variables)
+delivery:
+  # SMS via Twilio
+  sms:
+    enabled: false
+    # TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER in env
+    recipients: []
+
+  # Email via SendGrid
+  email:
+    enabled: false
+    # SENDGRID_API_KEY in env
+    from_address: "dive-conditions@example.com"
+    recipients: []
+
+# API client settings
+clients:
+  # Cache TTL settings (seconds)
+  cache_ttl:
+    buoy: 1800         # 30 minutes
+    pacioos: 3600      # 1 hour
+    nws_forecast: 1800 # 30 minutes
+    nws_alerts: 300    # 5 minutes
+    tides: 3600        # 1 hour
+    usgs: 900          # 15 minutes
+    cwb: 3600          # 1 hour
+
+  # Request timeouts (seconds)
+  timeout: 30
+
+  # Retry settings
+  max_retries: 3
+  retry_delay: 2
+
+# Logging
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/dive_conditions.log"

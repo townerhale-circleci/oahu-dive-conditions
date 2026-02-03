@@ -1,0 +1,73 @@
+name: Daily Dive Conditions
+
+on:
+  # Run daily at 5:30 AM Hawaii time (HST = UTC-10, so 15:30 UTC)
+  schedule:
+    - cron: '30 15 * * *'
+
+  # Allow manual trigger from Actions tab
+  workflow_dispatch:
+
+jobs:
+  send-digest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate and send digest
+        env:
+          # Twilio credentials (required for SMS)
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
+
+          # SendGrid credentials (optional, for email)
+          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+          SENDGRID_FROM_EMAIL: ${{ secrets.SENDGRID_FROM_EMAIL }}
+
+          # Recipients (comma-separated)
+          SMS_RECIPIENTS: ${{ secrets.SMS_RECIPIENTS }}
+          EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
+        run: |
+          # Build command with available recipients
+          CMD="python scripts/run_daily.py"
+
+          # Add SMS recipients if configured
+          if [ -n "$SMS_RECIPIENTS" ]; then
+            # Convert comma-separated to space-separated for CLI
+            SMS_ARGS=$(echo "$SMS_RECIPIENTS" | tr ',' ' ')
+            CMD="$CMD --sms $SMS_ARGS"
+          fi
+
+          # Add email recipients if configured
+          if [ -n "$EMAIL_RECIPIENTS" ]; then
+            EMAIL_ARGS=$(echo "$EMAIL_RECIPIENTS" | tr ',' ' ')
+            CMD="$CMD --email $EMAIL_ARGS"
+          fi
+
+          echo "Running: $CMD"
+          $CMD
+
+      - name: Save report artifact
+        run: |
+          python scripts/run_daily.py --format html --output dive_report.html
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: dive-report-${{ github.run_number }}
+          path: dive_report.html
+          retention-days: 7
