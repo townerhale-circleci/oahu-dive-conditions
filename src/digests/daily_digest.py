@@ -234,8 +234,8 @@ class DigestGenerator:
             # Track API statuses
             digest.api_statuses = self._collect_api_statuses(all_ranked)
 
-            # Generate 3-day forecast
-            digest.forecast_days = self._generate_forecast(days=3)
+            # Generate 7-day forecast
+            digest.forecast_days = self._generate_forecast(days=7)
 
         except Exception as e:
             logger.error(f"Error generating digest: {e}")
@@ -408,11 +408,11 @@ class DigestGenerator:
 
         return list(api_stats.values())
 
-    def _generate_forecast(self, days: int = 3) -> list[ForecastDay]:
+    def _generate_forecast(self, days: int = 7) -> list[ForecastDay]:
         """Generate multi-day forecast.
 
         Args:
-            days: Number of days to forecast (default 3)
+            days: Number of days to forecast (default 7)
 
         Returns:
             List of ForecastDay objects
@@ -434,19 +434,39 @@ class DigestGenerator:
             logger.warning(f"Failed to get NWS forecast: {e}")
             nws_df = pd.DataFrame()
 
-        # Get buoy forecast data for each coast
+        # Offshore reference points for wave forecasts (in water, not on land)
+        # These are ~1-2 miles offshore from each coast
+        wave_reference_points = {
+            "South Shore": (21.25, -157.85),      # Off Waikiki
+            "West Side": (21.40, -158.20),        # Off Makaha
+            "North Shore": (21.65, -158.05),      # Off Waimea
+            "Windward": (21.45, -157.75),         # Off Kaneohe
+        }
+
+        # Get wave forecast data for each coast reference point
         buoy_forecasts = {}
-        for buoy_name, buoy_info in OAHU_BUOYS.items():
+        for coast_name, (lat, lon) in wave_reference_points.items():
             try:
-                # Use PacIOOS for forecast since buoys only have current data
-                lat, lon = buoy_info["lat"], buoy_info["lon"]
-                wave_df = pacioos.get_forecast(lat, lon, hours=days * 24)
-                if not wave_df.empty:
+                # PacIOOS SWAN model provides ~5 days of forecast
+                wave_df = pacioos.get_forecast(lat, lon, hours=min(days * 24, 120))
+                if not wave_df.empty and wave_df["wave_height_m"].notna().any():
                     wave_df["time_parsed"] = pd.to_datetime(wave_df["time"])
                     wave_df["date"] = wave_df["time_parsed"].dt.date
-                    buoy_forecasts[buoy_info["location"]] = wave_df
+                    buoy_forecasts[coast_name] = wave_df
+                    logger.debug(f"Got wave forecast for {coast_name}: {len(wave_df)} records")
             except Exception as e:
-                logger.debug(f"No PacIOOS data for {buoy_name}: {e}")
+                logger.debug(f"No PacIOOS data for {coast_name}: {e}")
+
+        # Get current buoy conditions for "Today"
+        current_buoy_data = {}
+        try:
+            all_buoy_conditions = buoy.get_all_buoy_conditions()
+            for name, data in all_buoy_conditions.items():
+                if data.get("wave_height_ft"):
+                    location = data.get("location", name)
+                    current_buoy_data[location] = data["wave_height_ft"]
+        except Exception as e:
+            logger.debug(f"Failed to get current buoy data: {e}")
 
         # Generate forecast for each day
         today = datetime.now().date()
@@ -483,6 +503,20 @@ class DigestGenerator:
             # Extract wave data from forecasts
             wave_heights = []
             coast_outlooks = {}
+
+            # For today, use current buoy data
+            if i == 0 and current_buoy_data:
+                for location, height in current_buoy_data.items():
+                    wave_heights.append(height)
+                    # Determine outlook for this coast
+                    if height < 3:
+                        coast_outlooks[location] = "Good"
+                    elif height < 5:
+                        coast_outlooks[location] = "Fair"
+                    elif height < 8:
+                        coast_outlooks[location] = "Poor"
+                    else:
+                        coast_outlooks[location] = "Unsafe"
 
             for location, wave_df in buoy_forecasts.items():
                 day_waves = wave_df[wave_df["date"] == forecast_date]

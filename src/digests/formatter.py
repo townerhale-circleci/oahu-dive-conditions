@@ -153,9 +153,9 @@ class DigestFormatter:
             html_parts.append('<h2>Tides</h2>')
             html_parts.append(self._format_tide_html(d.tide_info))
 
-        # 3-Day Forecast
+        # 7-Day Forecast
         if d.forecast_days:
-            html_parts.append('<h2>3-Day Forecast</h2>')
+            html_parts.append('<h2>7-Day Forecast</h2>')
             html_parts.append(self._format_forecast_html(d.forecast_days))
 
         # Methodology section
