@@ -81,7 +81,6 @@ jobs:
           publish_dir: ./
           publish_branch: gh-pages
           keep_files: false
-          include_files: index.html
 
       - name: Send Push Notification via ntfy.sh
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
