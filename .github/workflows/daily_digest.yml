@@ -103,16 +103,14 @@ jobs:
 
           PAGES_URL="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/"
 
-          # Send to ntfy.sh
+          # Send to ntfy.sh with action button
           curl -s \
             -H "Title: Dive Report: ${DIVEABLE}/${TOTAL} diveable" \
             -H "Priority: default" \
             -H "Tags: ocean,diving" \
-            -H "Click: ${PAGES_URL}" \
+            -H "Actions: view, View Full Report, ${PAGES_URL}" \
             -d "Best coast: ${BEST_COAST}
-          Top site: ${TOP_SITE}
-
-          Tap to view full report" \
+          Top site: ${TOP_SITE}" \
             "https://ntfy.sh/${NTFY_TOPIC}"
 
           echo "Notification sent to ntfy.sh/${NTFY_TOPIC}"
