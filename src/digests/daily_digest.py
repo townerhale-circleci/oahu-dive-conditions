@@ -6,11 +6,16 @@ report suitable for formatting as SMS, email, or other outputs.
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
+
+import pandas as pd
 
 from src.core.ranker import RankedSite, SiteRanker
 from src.core.site import SiteDatabase, get_site_database
+from src.clients.buoy_client import BuoyClient, OAHU_BUOYS
+from src.clients.nws_client import NWSClient
+from src.clients.pacioos_client import PacIOOSClient
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +73,35 @@ class APIStatus:
 
 
 @dataclass
+class ForecastDay:
+    """Forecast for a single day."""
+    date: datetime
+    day_name: str  # "Today", "Tomorrow", "Wednesday", etc.
+
+    # Wave conditions (aggregated across coasts)
+    wave_height_min_ft: Optional[float] = None
+    wave_height_max_ft: Optional[float] = None
+    dominant_swell_direction: Optional[str] = None
+
+    # Wind conditions
+    wind_speed_min_mph: Optional[float] = None
+    wind_speed_max_mph: Optional[float] = None
+    wind_direction: Optional[str] = None
+
+    # Weather
+    conditions: Optional[str] = None  # "Sunny", "Partly Cloudy", etc.
+    rain_chance: Optional[int] = None  # percentage
+
+    # Dive outlook
+    outlook: str = "Unknown"  # "Good", "Fair", "Poor", "Unsafe"
+    outlook_reason: Optional[str] = None
+    best_coast: Optional[str] = None
+
+    # Per-coast breakdown
+    coast_outlooks: dict = field(default_factory=dict)  # coast -> outlook
+
+
+@dataclass
 class DailyDigest:
     """Complete daily dive conditions digest."""
     generated_at: datetime
@@ -95,6 +129,9 @@ class DailyDigest:
 
     # API status tracking
     api_statuses: list[APIStatus] = field(default_factory=list)
+
+    # Multi-day forecast
+    forecast_days: list[ForecastDay] = field(default_factory=list)
 
     # Errors during generation
     errors: list[str] = field(default_factory=list)
@@ -196,6 +233,9 @@ class DigestGenerator:
 
             # Track API statuses
             digest.api_statuses = self._collect_api_statuses(all_ranked)
+
+            # Generate 3-day forecast
+            digest.forecast_days = self._generate_forecast(days=3)
 
         except Exception as e:
             logger.error(f"Error generating digest: {e}")
@@ -367,6 +407,133 @@ class DigestGenerator:
                 api_stats["usgs"].success_count += 1
 
         return list(api_stats.values())
+
+    def _generate_forecast(self, days: int = 3) -> list[ForecastDay]:
+        """Generate multi-day forecast.
+
+        Args:
+            days: Number of days to forecast (default 3)
+
+        Returns:
+            List of ForecastDay objects
+        """
+        forecasts = []
+        nws = NWSClient()
+        pacioos = PacIOOSClient()
+        buoy = BuoyClient()
+
+        # Reference location for weather (Honolulu)
+        ref_lat, ref_lon = 21.31, -157.86
+
+        # Get NWS hourly forecast (up to 7 days)
+        try:
+            nws_df = nws.get_hourly_forecast(ref_lat, ref_lon)
+            nws_df["time_parsed"] = pd.to_datetime(nws_df["time"])
+            nws_df["date"] = nws_df["time_parsed"].dt.date
+        except Exception as e:
+            logger.warning(f"Failed to get NWS forecast: {e}")
+            nws_df = pd.DataFrame()
+
+        # Get buoy forecast data for each coast
+        buoy_forecasts = {}
+        for buoy_name, buoy_info in OAHU_BUOYS.items():
+            try:
+                # Use PacIOOS for forecast since buoys only have current data
+                lat, lon = buoy_info["lat"], buoy_info["lon"]
+                wave_df = pacioos.get_forecast(lat, lon, hours=days * 24)
+                if not wave_df.empty:
+                    wave_df["time_parsed"] = pd.to_datetime(wave_df["time"])
+                    wave_df["date"] = wave_df["time_parsed"].dt.date
+                    buoy_forecasts[buoy_info["location"]] = wave_df
+            except Exception as e:
+                logger.debug(f"No PacIOOS data for {buoy_name}: {e}")
+
+        # Generate forecast for each day
+        today = datetime.now().date()
+        day_names = ["Today", "Tomorrow"]
+
+        for i in range(days):
+            forecast_date = today + timedelta(days=i)
+
+            # Day name
+            if i < len(day_names):
+                day_name = day_names[i]
+            else:
+                day_name = forecast_date.strftime("%A")
+
+            forecast = ForecastDay(
+                date=datetime.combine(forecast_date, datetime.min.time()),
+                day_name=day_name,
+            )
+
+            # Extract weather data for this day
+            if not nws_df.empty:
+                day_weather = nws_df[nws_df["date"] == forecast_date]
+                if not day_weather.empty:
+                    forecast.wind_speed_min_mph = day_weather["wind_speed_mph"].min()
+                    forecast.wind_speed_max_mph = day_weather["wind_speed_mph"].max()
+                    forecast.wind_direction = day_weather.iloc[len(day_weather)//2]["wind_direction"]
+                    forecast.conditions = day_weather.iloc[len(day_weather)//2]["short_forecast"]
+
+                    # Rain chance
+                    rain_probs = day_weather["precipitation_probability"].dropna()
+                    if not rain_probs.empty:
+                        forecast.rain_chance = int(rain_probs.max())
+
+            # Extract wave data from forecasts
+            wave_heights = []
+            coast_outlooks = {}
+
+            for location, wave_df in buoy_forecasts.items():
+                day_waves = wave_df[wave_df["date"] == forecast_date]
+                if not day_waves.empty:
+                    heights = day_waves["wave_height_m"].dropna() * 3.28084  # Convert to ft
+                    if not heights.empty:
+                        wave_heights.extend(heights.tolist())
+                        avg_height = heights.mean()
+
+                        # Determine outlook for this coast
+                        if avg_height < 3:
+                            coast_outlooks[location] = "Good"
+                        elif avg_height < 5:
+                            coast_outlooks[location] = "Fair"
+                        elif avg_height < 8:
+                            coast_outlooks[location] = "Poor"
+                        else:
+                            coast_outlooks[location] = "Unsafe"
+
+            if wave_heights:
+                forecast.wave_height_min_ft = min(wave_heights)
+                forecast.wave_height_max_ft = max(wave_heights)
+
+            forecast.coast_outlooks = coast_outlooks
+
+            # Determine overall outlook
+            if coast_outlooks:
+                outlook_priority = {"Good": 0, "Fair": 1, "Poor": 2, "Unsafe": 3}
+                # Best outlook among coasts
+                best_outlook = min(coast_outlooks.values(), key=lambda x: outlook_priority.get(x, 4))
+                forecast.outlook = best_outlook
+
+                # Find best coast
+                for coast, outlook in coast_outlooks.items():
+                    if outlook == best_outlook:
+                        forecast.best_coast = coast
+                        break
+
+                # Outlook reason
+                if best_outlook == "Good":
+                    forecast.outlook_reason = "Small waves expected"
+                elif best_outlook == "Fair":
+                    forecast.outlook_reason = "Moderate conditions"
+                elif best_outlook == "Poor":
+                    forecast.outlook_reason = "Elevated surf"
+                else:
+                    forecast.outlook_reason = "Large swell expected"
+
+            forecasts.append(forecast)
+
+        return forecasts
 
 
 def generate_daily_digest(**kwargs) -> DailyDigest:

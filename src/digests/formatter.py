@@ -6,7 +6,7 @@ Supports SMS (short), email (full), and plain text formats.
 from datetime import datetime
 from typing import Optional
 
-from src.digests.daily_digest import DailyDigest, CoastSummary, AlertInfo, APIStatus
+from src.digests.daily_digest import DailyDigest, CoastSummary, AlertInfo, APIStatus, ForecastDay
 from src.core.ranker import RankedSite
 
 
@@ -152,6 +152,11 @@ class DigestFormatter:
         if d.tide_info:
             html_parts.append('<h2>Tides</h2>')
             html_parts.append(self._format_tide_html(d.tide_info))
+
+        # 3-Day Forecast
+        if d.forecast_days:
+            html_parts.append('<h2>3-Day Forecast</h2>')
+            html_parts.append(self._format_forecast_html(d.forecast_days))
 
         # Methodology section
         html_parts.append('<h2>Methodology</h2>')
@@ -329,6 +334,23 @@ class DigestFormatter:
             .status-bar-fill.success { background: #2b8a3e; }
             .status-bar-fill.partial { background: #e67700; }
             .status-bar-fill.fail { background: #c92a2a; }
+            .forecast-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                            gap: 15px; margin: 15px 0; }
+            .forecast-day { background: #f8f9fa; border-radius: 8px; padding: 15px;
+                           border-left: 4px solid #0066cc; }
+            .forecast-day.outlook-good { border-left-color: #2b8a3e; }
+            .forecast-day.outlook-fair { border-left-color: #5c940d; }
+            .forecast-day.outlook-poor { border-left-color: #e67700; }
+            .forecast-day.outlook-unsafe { border-left-color: #c92a2a; }
+            .forecast-day h3 { margin: 0 0 10px 0; font-size: 1.1em; color: #333; }
+            .forecast-day .date { color: #666; font-size: 0.85em; margin-bottom: 10px; }
+            .forecast-outlook { font-weight: bold; font-size: 1.2em; margin: 10px 0; }
+            .forecast-outlook.good { color: #2b8a3e; }
+            .forecast-outlook.fair { color: #5c940d; }
+            .forecast-outlook.poor { color: #e67700; }
+            .forecast-outlook.unsafe { color: #c92a2a; }
+            .forecast-detail { font-size: 0.9em; color: #555; margin: 5px 0; }
+            .forecast-detail strong { color: #333; }
         """
 
     def _format_alerts_html(self, alerts: list[AlertInfo]) -> str:
@@ -440,6 +462,49 @@ class DigestFormatter:
         html.append('<span class="grade-D">D (40-54)</span> Poor | ')
         html.append('<span class="grade-F">F (&lt;40)</span> Unsafe')
         html.append('</p>')
+
+        html.append('</div>')
+        return "\n".join(html)
+
+    def _format_forecast_html(self, forecast_days: list[ForecastDay]) -> str:
+        """Format multi-day forecast as HTML."""
+        html = ['<div class="forecast-grid">']
+
+        for day in forecast_days:
+            outlook_lower = day.outlook.lower()
+            outlook_class = f"outlook-{outlook_lower}"
+
+            html.append(f'<div class="forecast-day {outlook_class}">')
+            html.append(f'<h3>{day.day_name}</h3>')
+            html.append(f'<div class="date">{day.date.strftime("%A, %b %d")}</div>')
+
+            # Outlook
+            html.append(f'<div class="forecast-outlook {outlook_lower}">{day.outlook}</div>')
+            if day.outlook_reason:
+                html.append(f'<div class="forecast-detail">{day.outlook_reason}</div>')
+
+            # Waves
+            if day.wave_height_min_ft is not None and day.wave_height_max_ft is not None:
+                html.append(f'<div class="forecast-detail"><strong>Waves:</strong> {day.wave_height_min_ft:.1f}-{day.wave_height_max_ft:.1f} ft</div>')
+
+            # Wind
+            if day.wind_speed_min_mph is not None and day.wind_speed_max_mph is not None:
+                wind_dir = f" {day.wind_direction}" if day.wind_direction else ""
+                html.append(f'<div class="forecast-detail"><strong>Wind:</strong> {day.wind_speed_min_mph:.0f}-{day.wind_speed_max_mph:.0f} mph{wind_dir}</div>')
+
+            # Weather
+            if day.conditions:
+                html.append(f'<div class="forecast-detail"><strong>Weather:</strong> {day.conditions}</div>')
+
+            # Rain chance
+            if day.rain_chance is not None and day.rain_chance > 0:
+                html.append(f'<div class="forecast-detail"><strong>Rain:</strong> {day.rain_chance}% chance</div>')
+
+            # Best coast
+            if day.best_coast:
+                html.append(f'<div class="forecast-detail"><strong>Best area:</strong> {day.best_coast}</div>')
+
+            html.append('</div>')
 
         html.append('</div>')
         return "\n".join(html)
