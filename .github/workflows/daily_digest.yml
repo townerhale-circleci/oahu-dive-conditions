@@ -83,75 +83,39 @@ jobs:
           keep_files: false
           include_files: index.html
 
-      - name: Send SMS via Email Gateway
+      - name: Send Push Notification via ntfy.sh
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         env:
-          SMTP_SERVER: smtp.gmail.com
-          SMTP_PORT: 587
-          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          SMS_GATEWAY_EMAIL: ${{ secrets.SMS_GATEWAY_EMAIL }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: |
-          # Only send if SMS gateway is configured
-          if [ -z "$SMS_GATEWAY_EMAIL" ]; then
-            echo "SMS_GATEWAY_EMAIL not configured, skipping SMS"
+          # Only send if ntfy topic is configured
+          if [ -z "$NTFY_TOPIC" ]; then
+            echo "NTFY_TOPIC not configured, skipping notification"
             exit 0
           fi
 
-          python -c "
-          import smtplib
-          import json
-          import os
-          from email.mime.text import MIMEText
+          # Build notification message
+          SUMMARY=$(cat summary.json)
+          DIVEABLE=$(echo "$SUMMARY" | python -c "import sys,json; print(json.load(sys.stdin)['diveable'])")
+          TOTAL=$(echo "$SUMMARY" | python -c "import sys,json; print(json.load(sys.stdin)['total'])")
+          BEST_COAST=$(echo "$SUMMARY" | python -c "import sys,json; print(json.load(sys.stdin)['best_coast'])")
+          TOP_SITE=$(echo "$SUMMARY" | python -c "import sys,json; s=json.load(sys.stdin)['top_sites']; print(f\"{s[0]['name']} ({s[0]['grade']})\" if s else 'None')")
 
-          # Load summary
-          with open('summary.json') as f:
-              summary = json.load(f)
+          PAGES_URL="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/"
 
-          # Build SMS message (keep it short for SMS)
-          top_site = summary['top_sites'][0] if summary['top_sites'] else None
-          if top_site:
-              top_str = f\"Best: {top_site['name']} ({top_site['grade']})\"
-          else:
-              top_str = ''
+          # Send to ntfy.sh
+          curl -s \
+            -H "Title: Dive Report: ${DIVEABLE}/${TOTAL} diveable" \
+            -H "Priority: default" \
+            -H "Tags: ocean,diving" \
+            -H "Click: ${PAGES_URL}" \
+            -d "Best coast: ${BEST_COAST}
+          Top site: ${TOP_SITE}
 
-          # GitHub Pages URL
-          repo = os.environ.get('GITHUB_REPOSITORY', '')
-          owner = repo.split('/')[0] if repo else ''
-          repo_name = repo.split('/')[1] if '/' in repo else ''
-          pages_url = f'https://{owner}.github.io/{repo_name}/'
+          Tap to view full report" \
+            "https://ntfy.sh/${NTFY_TOPIC}"
 
-          msg_body = f\"\"\"Dive Report: {summary['diveable']}/{summary['total']} diveable
-          {summary['best_coast']}
-          {top_str}
-          {pages_url}\"\"\"
-
-          # Send email
-          smtp_server = os.environ.get('SMTP_SERVER', 'smtp.gmail.com')
-          smtp_port = int(os.environ.get('SMTP_PORT', 587))
-          username = os.environ.get('SMTP_USERNAME', '')
-          password = os.environ.get('SMTP_PASSWORD', '')
-          to_email = os.environ.get('SMS_GATEWAY_EMAIL', '')
-
-          if not all([username, password, to_email]):
-              print('SMTP credentials not fully configured')
-              exit(0)
-
-          msg = MIMEText(msg_body)
-          msg['Subject'] = 'Dive'
-          msg['From'] = username
-          msg['To'] = to_email
-
-          try:
-              server = smtplib.SMTP(smtp_server, smtp_port)
-              server.starttls()
-              server.login(username, password)
-              server.sendmail(username, to_email, msg.as_string())
-              server.quit()
-              print(f'SMS sent to {to_email}')
-          except Exception as e:
-              print(f'Failed to send SMS: {e}')
-          "
+          echo "Notification sent to ntfy.sh/${NTFY_TOPIC}"
 
       - name: Upload report artifact
         uses: actions/upload-artifact@v4
