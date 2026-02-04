@@ -69,125 +69,172 @@
             .forecast-advisory { background: #ffa94d; color: white; padding: 5px 10px;
                                 border-radius: 3px; font-size: 0.85em; font-weight: bold; margin: 5px 0; }
             .forecast-beaches { margin-top: 10px; padding-top: 10px; border-top: 1px solid #dee2e6; }
-            .beach-list { margin: 5px 0 0 0; padding-left: 20px; font-size: 0.85em; }
-            .beach-list li { margin: 3px 0; }
-            .beach-meta { color: #868e96; }
+            .beach-card { background: white; border: 1px solid #dee2e6; border-radius: 6px;
+                         padding: 10px; margin: 8px 0; }
+            .beach-name { font-weight: bold; color: #0066cc; }
+            .beach-location { font-size: 0.8em; color: #868e96; }
+            .beach-conditions { font-size: 0.85em; margin: 5px 0; color: #495057; }
+            .beach-reason { font-size: 0.85em; color: #2b8a3e; margin-top: 5px; }
         
 </style>
 </head>
 <body>
 <div class="container">
 <h1>Oahu Dive Conditions</h1>
-<p class="date">Tuesday, February 03, 2026 at 04:21 PM</p>
-<div class="alert-banner">High Surf Warning issued February 3 at 8:24AM HST until February 4 at 6:00PM HST by NWS Honolulu HI</div>
-<div class="alert-banner advisory">High Surf Advisory issued February 3 at 8:24AM HST until February 4 at 6:00PM HST by NWS Honolulu HI</div>
-<div class="alert-banner">High Wind Warning issued February 3 at 3:29AM HST until February 4 at 6:00AM HST by NWS Honolulu HI</div>
+<p class="date">Tuesday, February 03, 2026 at 08:06 PM</p>
+<div class="alert-banner advisory">High Surf Advisory issued February 3 at 3:35PM HST until February 4 at 6:00PM HST by NWS Honolulu HI</div>
+<div class="alert-banner">High Surf Warning issued February 3 at 3:35PM HST until February 4 at 6:00PM HST by NWS Honolulu HI</div>
+<div class="alert-banner">High Wind Warning issued February 3 at 2:24PM HST until February 4 at 6:00AM HST by NWS Honolulu HI</div>
 <div class="summary">
-<p class="no-dive">No diveable sites today</p>
-<p class="warning-note">⚠️ High Surf Warning in effect - all sites marked unsafe regardless of local conditions</p>
-<p>Wave heights: 0.8 - 11.5 ft</p>
+<p class="diveable-count">11 of 28 sites diveable</p>
+<p>Best conditions: <strong>South Shore</strong></p>
+<p class="warning-note">⚠️ High Surf Warning active for some areas - check local conditions</p>
 </div>
 <h2>Top Sites</h2>
 <table>
 <tr><th>Rank</th><th>Site</th><th>Grade</th><th>Score</th><th>Waves</th><th>WPI</th><th>Status</th></tr>
-<tr title="High Surf Warning in effect - dangerous conditions; Wave height (11.5ft) exceeds safe threshold (4ft)">
+<tr title="High Surf Warning in effect for some areas; High Surf Advisory in effect - use caution">
 <td>1</td>
-<td>Electric Beach (Kahe Point)</td>
-<td class="grade-F">F</td>
-<td>0</td>
-<td>11.5ft</td>
-<td>1753.7</td>
-<td><span class="unsafe">Unsafe</span></td>
+<td>Heeia Kea Pier</td>
+<td class="grade-B">B</td>
+<td>78</td>
+<td>1.0ft</td>
+<td>5.5</td>
+<td>Diveable</td>
 </tr>
-<tr title="High Surf Warning in effect - dangerous conditions; Wave height (11.5ft) exceeds safe threshold (6ft)">
+<tr title="High Surf Warning in effect for some areas; High Surf Advisory in effect - use caution">
 <td>2</td>
-<td>Pokai Bay</td>
-<td class="grade-F">F</td>
-<td>0</td>
-<td>11.5ft</td>
-<td>1753.7</td>
-<td><span class="unsafe">Unsafe</span></td>
+<td>Coconut Island (Mokuoloe)</td>
+<td class="grade-B">B</td>
+<td>76</td>
+<td>0.7ft</td>
+<td>1.5</td>
+<td>Diveable</td>
 </tr>
-<tr title="High Surf Warning in effect - dangerous conditions; Wave height (11.5ft) exceeds safe threshold (4ft)">
+<tr title="High Surf Warning in effect for some areas; High Surf Advisory in effect - use caution">
 <td>3</td>
-<td>Nanakuli Beach</td>
-<td class="grade-F">F</td>
-<td>0</td>
-<td>11.5ft</td>
-<td>1753.7</td>
-<td><span class="unsafe">Unsafe</span></td>
+<td>Kaneohe Bay (General)</td>
+<td class="grade-B">B</td>
+<td>72</td>
+<td>1.5ft</td>
+<td>10.5</td>
+<td>Diveable</td>
 </tr>
-<tr title="High Surf Warning in effect - dangerous conditions; Wave height (11.5ft) exceeds safe threshold (4ft)">
+<tr title="High Surf Warning in effect for some areas; High Surf Advisory in effect - use caution; Elevated wave power index (58.5) - challenging conditions">
 <td>4</td>
-<td>Maili Beach (Maili Cove)</td>
-<td class="grade-F">F</td>
-<td>0</td>
-<td>11.5ft</td>
-<td>1753.7</td>
-<td><span class="unsafe">Unsafe</span></td>
+<td>Hanauma Bay</td>
+<td class="grade-D">D</td>
+<td>54</td>
+<td>2.3ft</td>
+<td>58.5</td>
+<td>Diveable</td>
 </tr>
-<tr title="High Surf Warning in effect - dangerous conditions; Wave height (11.5ft) exceeds safe threshold (4ft)">
+<tr title="High Surf Warning in effect for some areas; High Surf Advisory in effect - use caution; Elevated wave power index (58.5) - challenging conditions">
 <td>5</td>
-<td>Ulehawa Beach</td>
-<td class="grade-F">F</td>
-<td>0</td>
-<td>11.5ft</td>
-<td>1753.7</td>
-<td><span class="unsafe">Unsafe</span></td>
+<td>Waikiki Reef</td>
+<td class="grade-D">D</td>
+<td>52</td>
+<td>2.3ft</td>
+<td>58.5</td>
+<td>Diveable</td>
 </tr>
 </table>
 <h2>By Coast</h2>
 <table>
 <tr><th>Coast</th><th>Diveable</th><th>Avg Waves</th></tr>
 <tr>
-<td>West Side</td>
-<td>0/6</td>
-<td>11.5ft</td>
+<td>South Shore</td>
+<td>8/10</td>
+<td>2.3ft</td>
 </tr>
 <tr>
-<td>South Shore</td>
-<td>0/10</td>
-<td>2.3ft</td>
+<td>Windward</td>
+<td>3/11</td>
+<td>5.3ft</td>
+</tr>
+<tr>
+<td>West Side</td>
+<td>0/6</td>
+<td>10.2ft</td>
 </tr>
 <tr>
 <td>Southeast</td>
 <td>0/1</td>
-<td>7.5ft</td>
-</tr>
-<tr>
-<td>Windward</td>
-<td>0/11</td>
-<td>5.8ft</td>
+<td>6.9ft</td>
 </tr>
 </table>
 <h2>Tides</h2>
 <div class="tide-info">
-<p><strong>Next High Tide:</strong> 2026-02-04 05:41</p>
-<p><strong>Next Low Tide:</strong> 2026-02-04 12:23</p>
+<p><strong>Next High Tide:</strong> 2026-02-04 04:21</p>
+<p><strong>Next Low Tide:</strong> 2026-02-04 10:52</p>
 </div>
 <h2>7-Day Forecast</h2>
 <div class="forecast-grid">
-<div class="forecast-day outlook-unsafe">
+<div class="forecast-day outlook-fair">
 <h3>Today</h3>
 <div class="date">Tuesday, Feb 03</div>
 <div class="forecast-warning">⚠️ HIGH SURF WARNING</div>
-<div class="forecast-outlook unsafe">Unsafe</div>
-<div class="forecast-detail">High Surf Warning in effect (until february 4 at 6:00pm hst)</div>
-<div class="forecast-detail"><strong>Waves:</strong> 2.3-17.7 ft</div>
-<div class="forecast-detail"><strong>Wind:</strong> 6-8 mph N</div>
+<div class="forecast-outlook fair">Fair</div>
+<div class="forecast-detail">High Surf Advisory - use caution</div>
+<div class="forecast-detail"><strong>Waves:</strong> 2.3-16.1 ft</div>
+<div class="forecast-detail"><strong>Wind:</strong> 8-14 mph N</div>
 <div class="forecast-detail"><strong>Weather:</strong> Mostly Clear</div>
-<div class="forecast-detail"><strong>Rain:</strong> 6% chance</div>
+<div class="forecast-detail"><strong>Rain:</strong> 5% chance</div>
+<div class="forecast-detail"><strong>Best time:</strong> 5-9 AM</div>
+<div class="forecast-beaches">
+<strong>Recommended beaches:</strong>
+<div class="beach-card">
+<div class="beach-name">Heeia Kea Pier</div>
+<div class="beach-location">Windward</div>
+<div class="beach-conditions">Waves: 1.0ft • Wind: 14mph cross-shore  • Tide: rising • Best time: 5-9 AM (rising tide)</div>
+<div class="beach-reason">👍 flat 1.0ft waves + rising tide</div>
 </div>
-<div class="forecast-day outlook-unsafe">
+<div class="beach-card">
+<div class="beach-name">Coconut Island (Mokuoloe)</div>
+<div class="beach-location">Windward</div>
+<div class="beach-conditions">Waves: 0.7ft • Wind: 16mph cross-shore  • Tide: rising • Best time: 5-9 AM (rising tide)</div>
+<div class="beach-reason">👍 flat 0.7ft waves + rising tide</div>
+</div>
+<div class="beach-card">
+<div class="beach-name">Kaneohe Bay (General)</div>
+<div class="beach-location">Windward</div>
+<div class="beach-conditions">Waves: 1.5ft • Tide: rising • Best time: 5-9 AM (rising tide)</div>
+<div class="beach-reason">👍 flat 1.5ft waves + rising tide</div>
+</div>
+</div>
+</div>
+<div class="forecast-day outlook-fair">
 <h3>Tomorrow</h3>
 <div class="date">Wednesday, Feb 04</div>
 <div class="forecast-warning">⚠️ HIGH SURF WARNING</div>
-<div class="forecast-outlook unsafe">Unsafe</div>
-<div class="forecast-detail">High Surf Warning in effect (until february 4 at 6:00pm hst)</div>
-<div class="forecast-detail"><strong>Waves:</strong> 2.1-9.8 ft</div>
-<div class="forecast-detail"><strong>Wind:</strong> 3-10 mph ENE</div>
+<div class="forecast-outlook fair">Fair</div>
+<div class="forecast-detail">High Surf Advisory - use caution</div>
+<div class="forecast-detail"><strong>Waves:</strong> 2.1-9.5 ft</div>
+<div class="forecast-detail"><strong>Wind:</strong> 3-13 mph E</div>
 <div class="forecast-detail"><strong>Weather:</strong> Sunny</div>
-<div class="forecast-detail"><strong>Rain:</strong> 13% chance</div>
+<div class="forecast-detail"><strong>Rain:</strong> 5% chance</div>
+<div class="forecast-detail"><strong>Best time:</strong> 5-9 AM</div>
+<div class="forecast-beaches">
+<strong>Recommended beaches:</strong>
+<div class="beach-card">
+<div class="beach-name">Hanauma Bay</div>
+<div class="beach-location">South Shore</div>
+<div class="beach-conditions">Waves: 2.5ft • Wind: 8mph forecast  • Best time: 5-9 AM (early morning best)</div>
+<div class="beach-reason">👍 expected small 2.5ft waves + light winds forecast</div>
+</div>
+<div class="beach-card">
+<div class="beach-name">Waikiki Reef</div>
+<div class="beach-location">South Shore</div>
+<div class="beach-conditions">Waves: 2.5ft • Wind: 8mph forecast  • Best time: 5-9 AM (early morning best)</div>
+<div class="beach-reason">👍 expected small 2.5ft waves + light winds forecast</div>
+</div>
+<div class="beach-card">
+<div class="beach-name">Magic Island</div>
+<div class="beach-location">South Shore</div>
+<div class="beach-conditions">Waves: 2.5ft • Wind: 8mph forecast  • Best time: 5-9 AM (early morning best)</div>
+<div class="beach-reason">👍 expected small 2.5ft waves + light winds forecast</div>
+</div>
+</div>
 </div>
 <div class="forecast-day outlook-good">
 <h3>Thursday</h3>
@@ -195,11 +242,32 @@
 <div class="forecast-outlook good">Good</div>
 <div class="forecast-detail">Small waves expected</div>
 <div class="forecast-detail"><strong>Waves:</strong> 1.7-7.6 ft</div>
-<div class="forecast-detail"><strong>Wind:</strong> 3-10 mph SW</div>
+<div class="forecast-detail"><strong>Wind:</strong> 3-10 mph SSW</div>
 <div class="forecast-detail"><strong>Weather:</strong> Slight Chance Rain Showers</div>
 <div class="forecast-detail"><strong>Rain:</strong> 18% chance</div>
 <div class="forecast-detail"><strong>Best time:</strong> 5-9 AM</div>
 <div class="forecast-detail"><strong>Best area:</strong> South Shore</div>
+<div class="forecast-beaches">
+<strong>Recommended beaches:</strong>
+<div class="beach-card">
+<div class="beach-name">Hanauma Bay</div>
+<div class="beach-location">South Shore</div>
+<div class="beach-conditions">Waves: 1.9ft • Wind: 6mph forecast  • Best time: 5-9 AM (early morning best)</div>
+<div class="beach-reason">👍 expected flat 1.9ft waves + light winds forecast</div>
+</div>
+<div class="beach-card">
+<div class="beach-name">Waikiki Reef</div>
+<div class="beach-location">South Shore</div>
+<div class="beach-conditions">Waves: 1.9ft • Wind: 6mph forecast  • Best time: 5-9 AM (early morning best)</div>
+<div class="beach-reason">👍 expected flat 1.9ft waves + light winds forecast</div>
+</div>
+<div class="beach-card">
+<div class="beach-name">Magic Island</div>
+<div class="beach-location">South Shore</div>
+<div class="beach-conditions">Waves: 1.9ft • Wind: 6mph forecast  • Best time: 5-9 AM (early morning best)</div>
+<div class="beach-reason">👍 expected flat 1.9ft waves + light winds forecast</div>
+</div>
+</div>
 </div>
 <div class="forecast-day outlook-good">
 <h3>Friday</h3>
@@ -207,11 +275,32 @@
 <div class="forecast-outlook good">Good</div>
 <div class="forecast-detail">Small waves expected</div>
 <div class="forecast-detail"><strong>Waves:</strong> 2.0-5.0 ft</div>
-<div class="forecast-detail"><strong>Wind:</strong> 5-9 mph SW</div>
+<div class="forecast-detail"><strong>Wind:</strong> 5-10 mph SW</div>
 <div class="forecast-detail"><strong>Weather:</strong> Chance Rain Showers</div>
 <div class="forecast-detail"><strong>Rain:</strong> 69% chance</div>
 <div class="forecast-detail"><strong>Best time:</strong> 5-9 AM</div>
 <div class="forecast-detail"><strong>Best area:</strong> South Shore</div>
+<div class="forecast-beaches">
+<strong>Recommended beaches:</strong>
+<div class="beach-card">
+<div class="beach-name">Hanauma Bay</div>
+<div class="beach-location">South Shore</div>
+<div class="beach-conditions">Waves: 2.1ft • Wind: 8mph forecast  • Best time: 5-9 AM (early morning best)</div>
+<div class="beach-reason">👍 expected small 2.1ft waves + light winds forecast</div>
+</div>
+<div class="beach-card">
+<div class="beach-name">Waikiki Reef</div>
+<div class="beach-location">South Shore</div>
+<div class="beach-conditions">Waves: 2.1ft • Wind: 8mph forecast  • Best time: 5-9 AM (early morning best)</div>
+<div class="beach-reason">👍 expected small 2.1ft waves + light winds forecast</div>
+</div>
+<div class="beach-card">
+<div class="beach-name">Magic Island</div>
+<div class="beach-location">South Shore</div>
+<div class="beach-conditions">Waves: 2.1ft • Wind: 8mph forecast  • Best time: 5-9 AM (early morning best)</div>
+<div class="beach-reason">👍 expected small 2.1ft waves + light winds forecast</div>
+</div>
+</div>
 </div>
 <div class="forecast-day outlook-good">
 <h3>Saturday</h3>
@@ -219,11 +308,32 @@
 <div class="forecast-outlook good">Good</div>
 <div class="forecast-detail">Small waves expected</div>
 <div class="forecast-detail"><strong>Waves:</strong> 2.2-6.8 ft</div>
-<div class="forecast-detail"><strong>Wind:</strong> 8-22 mph NE</div>
+<div class="forecast-detail"><strong>Wind:</strong> 10-22 mph NE</div>
 <div class="forecast-detail"><strong>Weather:</strong> Chance Rain Showers</div>
 <div class="forecast-detail"><strong>Rain:</strong> 69% chance</div>
 <div class="forecast-detail"><strong>Best time:</strong> 5-9 AM</div>
 <div class="forecast-detail"><strong>Best area:</strong> South Shore</div>
+<div class="forecast-beaches">
+<strong>Recommended beaches:</strong>
+<div class="beach-card">
+<div class="beach-name">Hanauma Bay</div>
+<div class="beach-location">South Shore</div>
+<div class="beach-conditions">Waves: 2.4ft • Wind: 16mph forecast  • Best time: 5-9 AM (early morning best)</div>
+<div class="beach-reason">👍 expected small 2.4ft waves</div>
+</div>
+<div class="beach-card">
+<div class="beach-name">Waikiki Reef</div>
+<div class="beach-location">South Shore</div>
+<div class="beach-conditions">Waves: 2.4ft • Wind: 16mph forecast  • Best time: 5-9 AM (early morning best)</div>
+<div class="beach-reason">👍 expected small 2.4ft waves</div>
+</div>
+<div class="beach-card">
+<div class="beach-name">Magic Island</div>
+<div class="beach-location">South Shore</div>
+<div class="beach-conditions">Waves: 2.4ft • Wind: 16mph forecast  • Best time: 5-9 AM (early morning best)</div>
+<div class="beach-reason">👍 expected small 2.4ft waves</div>
+</div>
+</div>
 </div>
 <div class="forecast-day outlook-good">
 <h3>Sunday</h3>
@@ -231,11 +341,32 @@
 <div class="forecast-outlook good">Good</div>
 <div class="forecast-detail">Small waves expected</div>
 <div class="forecast-detail"><strong>Waves:</strong> 2.0-5.3 ft</div>
-<div class="forecast-detail"><strong>Wind:</strong> 22-28 mph ENE</div>
+<div class="forecast-detail"><strong>Wind:</strong> 22-30 mph NE</div>
 <div class="forecast-detail"><strong>Weather:</strong> Frequent Rain Showers</div>
 <div class="forecast-detail"><strong>Rain:</strong> 80% chance</div>
 <div class="forecast-detail"><strong>Best time:</strong> 5-9 AM</div>
 <div class="forecast-detail"><strong>Best area:</strong> South Shore</div>
+<div class="forecast-beaches">
+<strong>Recommended beaches:</strong>
+<div class="beach-card">
+<div class="beach-name">Hanauma Bay</div>
+<div class="beach-location">South Shore</div>
+<div class="beach-conditions">Waves: 2.2ft • Wind: 26mph forecast  • Best time: 5-9 AM (early morning best)</div>
+<div class="beach-reason">👍 expected small 2.2ft waves</div>
+</div>
+<div class="beach-card">
+<div class="beach-name">Waikiki Reef</div>
+<div class="beach-location">South Shore</div>
+<div class="beach-conditions">Waves: 2.2ft • Wind: 26mph forecast  • Best time: 5-9 AM (early morning best)</div>
+<div class="beach-reason">👍 expected small 2.2ft waves</div>
+</div>
+<div class="beach-card">
+<div class="beach-name">Magic Island</div>
+<div class="beach-location">South Shore</div>
+<div class="beach-conditions">Waves: 2.2ft • Wind: 26mph forecast  • Best time: 5-9 AM (early morning best)</div>
+<div class="beach-reason">👍 expected small 2.2ft waves</div>
+</div>
+</div>
 </div>
 <div class="forecast-day outlook-good">
 <h3>Monday</h3>
@@ -243,11 +374,32 @@
 <div class="forecast-outlook good">Good</div>
 <div class="forecast-detail">Small waves expected</div>
 <div class="forecast-detail"><strong>Waves:</strong> 2.6-3.1 ft</div>
-<div class="forecast-detail"><strong>Wind:</strong> 16-28 mph ENE</div>
+<div class="forecast-detail"><strong>Wind:</strong> 25-30 mph ENE</div>
 <div class="forecast-detail"><strong>Weather:</strong> Chance Rain Showers</div>
 <div class="forecast-detail"><strong>Rain:</strong> 78% chance</div>
 <div class="forecast-detail"><strong>Best time:</strong> 5-9 AM</div>
 <div class="forecast-detail"><strong>Best area:</strong> South Shore</div>
+<div class="forecast-beaches">
+<strong>Recommended beaches:</strong>
+<div class="beach-card">
+<div class="beach-name">Hanauma Bay</div>
+<div class="beach-location">South Shore</div>
+<div class="beach-conditions">Waves: 2.6ft • Wind: 28mph forecast  • Best time: 5-9 AM (early morning best)</div>
+<div class="beach-reason">👍 expected small 2.6ft waves</div>
+</div>
+<div class="beach-card">
+<div class="beach-name">Waikiki Reef</div>
+<div class="beach-location">South Shore</div>
+<div class="beach-conditions">Waves: 2.6ft • Wind: 28mph forecast  • Best time: 5-9 AM (early morning best)</div>
+<div class="beach-reason">👍 expected small 2.6ft waves</div>
+</div>
+<div class="beach-card">
+<div class="beach-name">Magic Island</div>
+<div class="beach-location">South Shore</div>
+<div class="beach-conditions">Waves: 2.6ft • Wind: 28mph forecast  • Best time: 5-9 AM (early morning best)</div>
+<div class="beach-reason">👍 expected small 2.6ft waves</div>
+</div>
+</div>
 </div>
 </div>
 <h2>Methodology</h2>
@@ -269,10 +421,10 @@
 <h3>Safety Gates</h3>
 <p>These conditions automatically mark a site as <strong>Unsafe</strong>:</p>
 <ul>
-<li>High Surf Warning active</li>
-<li>Brown Water Advisory at site</li>
+<li>Brown Water Advisory at site (water quality issue)</li>
 <li>Wave height exceeds site threshold (typically &gt;6ft)</li>
 </ul>
+<p><em>Note: High Surf Warning is shown as informational but does not override local conditions. A site with small waves may still be diveable even during a warning.</em></p>
 <h3>Grade Scale</h3>
 <p>
 <span class="grade-A">A (85+)</span> Excellent | 

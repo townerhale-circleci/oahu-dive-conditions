@@ -463,10 +463,10 @@ class DigestFormatter:
         html.append('<h3>Safety Gates</h3>')
         html.append('<p>These conditions automatically mark a site as <strong>Unsafe</strong>:</p>')
         html.append('<ul>')
-        html.append('<li>High Surf Warning active</li>')
-        html.append('<li>Brown Water Advisory at site</li>')
+        html.append('<li>Brown Water Advisory at site (water quality issue)</li>')
         html.append('<li>Wave height exceeds site threshold (typically &gt;6ft)</li>')
         html.append('</ul>')
+        html.append('<p><em>Note: High Surf Warning is shown as informational but does not override local conditions. A site with small waves may still be diveable even during a warning.</em></p>')
 
         # Grade scale
         html.append('<h3>Grade Scale</h3>')

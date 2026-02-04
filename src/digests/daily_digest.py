@@ -647,24 +647,23 @@ class DigestGenerator:
                 elif best_outlook == "Poor":
                     forecast.best_time = "Early morning only"
 
-            # Add specific beach recommendations for today with detailed conditions
+            # Add beach recommendations for ALL days
+            recommended = []
+
             if i == 0 and ranked_sites:
-                # Get top beaches from ranked sites (sorted by score)
-                recommended = []
+                # TODAY: Use actual ranked site data
                 for site in ranked_sites:
-                    if len(recommended) >= 5:
+                    if len(recommended) >= 3:
                         break
 
-                    # Only recommend sites with reasonable conditions
                     wave_ht = site.conditions.wave_height_ft
                     if wave_ht is None or wave_ht > 6:
                         continue
 
-                    # Build detailed recommendation
                     cond = site.conditions
                     score_result = site.score
 
-                    # Determine why this site is recommended
+                    # Build reasons
                     reasons = []
                     if wave_ht and wave_ht < 2:
                         reasons.append(f"flat {wave_ht:.1f}ft waves")
@@ -682,8 +681,7 @@ class DigestGenerator:
                     if cond.tide_phase:
                         reasons.append(f"{cond.tide_phase} tide")
 
-                    # Best time based on conditions
-                    best_time = "5-9 AM"  # Early morning default
+                    best_time = "5-9 AM"
                     if cond.tide_phase == "low":
                         best_time = "around low tide"
                     elif cond.tide_phase == "rising":
@@ -696,7 +694,7 @@ class DigestGenerator:
                         wave_period_s=cond.wave_period_s,
                         wind_speed_mph=cond.wind_speed_mph,
                         wind_type=wind_type,
-                        wind_direction=None,  # TODO: add wind direction string
+                        wind_direction=None,
                         tide_phase=cond.tide_phase,
                         outlook=site.grade,
                         score=score_result.total_score,
@@ -704,8 +702,81 @@ class DigestGenerator:
                         why_recommended=" + ".join(reasons) if reasons else None,
                     )
                     recommended.append(beach)
-                forecast.recommended_beaches = recommended
 
+            elif coast_outlooks and ranked_sites:
+                # FUTURE DAYS: Use coast forecasts + site database to recommend beaches
+                # Find the best coast(s) for this day
+                best_coasts = [coast for coast, outlook in coast_outlooks.items()
+                               if outlook in ("Good", "Fair")]
+
+                if not best_coasts and coast_outlooks:
+                    # If no good coasts, use the best available
+                    outlook_priority = {"Good": 0, "Fair": 1, "Poor": 2, "Unsafe": 3}
+                    best_coasts = [min(coast_outlooks.keys(),
+                                      key=lambda c: outlook_priority.get(coast_outlooks[c], 4))]
+
+                # Get forecast wave height for each coast
+                coast_waves = {}
+                for coast_name, wave_df in buoy_forecasts.items():
+                    day_waves = wave_df[wave_df["date"] == forecast_date]
+                    if not day_waves.empty:
+                        heights = day_waves["wave_height_m"].dropna() * 3.28084
+                        if not heights.empty:
+                            coast_waves[coast_name] = heights.mean()
+
+                # Map coast names to site database coast keys
+                coast_key_map = {
+                    "South Shore": "south_shore",
+                    "West Side": "west_side",
+                    "North Shore": "north_shore",
+                    "Windward": "windward",
+                    "South": "south_shore",
+                }
+
+                # Get top sites from best coasts
+                for coast_name in best_coasts[:2]:  # Top 2 coasts
+                    coast_key = coast_key_map.get(coast_name, coast_name.lower().replace(" ", "_"))
+                    wave_ht = coast_waves.get(coast_name, 3.0)  # Default estimate
+
+                    # Find top sites for this coast from ranked_sites
+                    coast_sites = [s for s in ranked_sites
+                                   if s.site.coast == coast_key][:3]
+
+                    for site in coast_sites:
+                        if len(recommended) >= 3:
+                            break
+
+                        # Estimate conditions for this day
+                        reasons = []
+                        if wave_ht < 2:
+                            reasons.append(f"expected flat {wave_ht:.1f}ft waves")
+                        elif wave_ht < 4:
+                            reasons.append(f"expected small {wave_ht:.1f}ft waves")
+                        elif wave_ht < 6:
+                            reasons.append(f"expected moderate {wave_ht:.1f}ft waves")
+
+                        # Use forecast wind
+                        if forecast.wind_speed_max_mph:
+                            avg_wind = (forecast.wind_speed_min_mph + forecast.wind_speed_max_mph) / 2
+                            if avg_wind < 10:
+                                reasons.append("light winds forecast")
+
+                        beach = BeachForecast(
+                            name=site.site.name,
+                            coast=self.COAST_DISPLAY_NAMES.get(site.site.coast, site.site.coast),
+                            wave_height_ft=wave_ht,
+                            wind_speed_mph=(forecast.wind_speed_min_mph + forecast.wind_speed_max_mph) / 2 if forecast.wind_speed_max_mph else None,
+                            wind_type="forecast",
+                            wind_direction=forecast.wind_direction,
+                            tide_phase=None,  # Tide changes throughout day
+                            outlook=coast_outlooks.get(coast_name, "Fair"),
+                            score=0,
+                            best_time="5-9 AM (early morning best)",
+                            why_recommended=" + ".join(reasons) if reasons else f"Best option on {coast_name}",
+                        )
+                        recommended.append(beach)
+
+            forecast.recommended_beaches = recommended
             forecasts.append(forecast)
 
         return forecasts
