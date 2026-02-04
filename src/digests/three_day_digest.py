@@ -1,1 +1,0 @@
-"""Three-day digest generator."""
