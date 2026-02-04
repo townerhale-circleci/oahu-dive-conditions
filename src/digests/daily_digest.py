@@ -73,6 +73,17 @@ class APIStatus:
 
 
 @dataclass
+class BeachForecast:
+    """Forecast for a specific beach."""
+    name: str
+    coast: str
+    wave_height_ft: Optional[float] = None
+    outlook: str = "Unknown"
+    best_time: Optional[str] = None  # "5-9 AM", "Early Morning", etc.
+    notes: Optional[str] = None
+
+
+@dataclass
 class ForecastDay:
     """Forecast for a single day."""
     date: datetime
@@ -96,6 +107,18 @@ class ForecastDay:
     outlook: str = "Unknown"  # "Good", "Fair", "Poor", "Unsafe"
     outlook_reason: Optional[str] = None
     best_coast: Optional[str] = None
+
+    # Active warnings that affect this day
+    has_high_surf_warning: bool = False
+    has_high_surf_advisory: bool = False
+    has_wind_warning: bool = False
+    warning_expires: Optional[str] = None
+
+    # Best time to dive
+    best_time: Optional[str] = None  # "5-9 AM", etc.
+
+    # Top recommended beaches for this day
+    recommended_beaches: list[BeachForecast] = field(default_factory=list)
 
     # Per-coast breakdown
     coast_outlooks: dict = field(default_factory=dict)  # coast -> outlook
@@ -234,8 +257,12 @@ class DigestGenerator:
             # Track API statuses
             digest.api_statuses = self._collect_api_statuses(all_ranked)
 
-            # Generate 7-day forecast
-            digest.forecast_days = self._generate_forecast(days=7)
+            # Generate 7-day forecast (pass alerts and ranked sites for context)
+            digest.forecast_days = self._generate_forecast(
+                days=7,
+                alerts=digest.alerts,
+                ranked_sites=all_ranked,
+            )
 
         except Exception as e:
             logger.error(f"Error generating digest: {e}")
@@ -408,11 +435,18 @@ class DigestGenerator:
 
         return list(api_stats.values())
 
-    def _generate_forecast(self, days: int = 7) -> list[ForecastDay]:
+    def _generate_forecast(
+        self,
+        days: int = 7,
+        alerts: Optional[list[AlertInfo]] = None,
+        ranked_sites: Optional[list[RankedSite]] = None,
+    ) -> list[ForecastDay]:
         """Generate multi-day forecast.
 
         Args:
             days: Number of days to forecast (default 7)
+            alerts: Active weather alerts
+            ranked_sites: Current ranked sites for beach recommendations
 
         Returns:
             List of ForecastDay objects
@@ -421,6 +455,22 @@ class DigestGenerator:
         nws = NWSClient()
         pacioos = PacIOOSClient()
         buoy = BuoyClient()
+        alerts = alerts or []
+
+        # Check for active warnings
+        has_surf_warning = any(a.type == "high_surf_warning" for a in alerts)
+        has_surf_advisory = any(a.type == "high_surf_advisory" for a in alerts)
+        has_wind_warning = any("wind" in a.type.lower() for a in alerts)
+
+        # Get warning expiration (look for it in headlines)
+        warning_expires = None
+        for alert in alerts:
+            if "until" in alert.headline.lower():
+                # Extract expiration from headline
+                parts = alert.headline.lower().split("until")
+                if len(parts) > 1:
+                    warning_expires = parts[1].strip().split(" by")[0].strip()
+                    break
 
         # Reference location for weather (Honolulu)
         ref_lat, ref_lon = 21.31, -157.86
@@ -542,11 +592,47 @@ class DigestGenerator:
 
             forecast.coast_outlooks = coast_outlooks
 
-            # Determine overall outlook
-            if coast_outlooks:
+            # Check if warnings apply to this day (assume warnings affect today and possibly tomorrow)
+            # Most warnings expire within 24-48 hours
+            if i == 0:  # Today
+                forecast.has_high_surf_warning = has_surf_warning
+                forecast.has_high_surf_advisory = has_surf_advisory
+                forecast.has_wind_warning = has_wind_warning
+                forecast.warning_expires = warning_expires
+            elif i == 1 and warning_expires:  # Tomorrow - check if warning extends
+                # Simple heuristic: if warning mentions tomorrow's date, it applies
+                forecast.has_high_surf_warning = has_surf_warning
+                forecast.has_high_surf_advisory = has_surf_advisory
+                forecast.warning_expires = warning_expires
+
+            # Determine overall outlook - WARNINGS OVERRIDE WAVE-BASED OUTLOOK
+            if forecast.has_high_surf_warning:
+                forecast.outlook = "Unsafe"
+                forecast.outlook_reason = f"High Surf Warning in effect"
+                if forecast.warning_expires:
+                    forecast.outlook_reason += f" (until {forecast.warning_expires})"
+                forecast.best_coast = None
+                forecast.best_time = None
+            elif coast_outlooks:
                 outlook_priority = {"Good": 0, "Fair": 1, "Poor": 2, "Unsafe": 3}
                 # Best outlook among coasts
                 best_outlook = min(coast_outlooks.values(), key=lambda x: outlook_priority.get(x, 4))
+
+                # High surf advisory downgrades outlook
+                if forecast.has_high_surf_advisory and best_outlook in ("Good", "Fair"):
+                    best_outlook = "Fair"
+                    forecast.outlook_reason = "High Surf Advisory - use caution"
+                else:
+                    # Outlook reason based on conditions
+                    if best_outlook == "Good":
+                        forecast.outlook_reason = "Small waves expected"
+                    elif best_outlook == "Fair":
+                        forecast.outlook_reason = "Moderate conditions"
+                    elif best_outlook == "Poor":
+                        forecast.outlook_reason = "Elevated surf"
+                    else:
+                        forecast.outlook_reason = "Large swell expected"
+
                 forecast.outlook = best_outlook
 
                 # Find best coast
@@ -555,15 +641,31 @@ class DigestGenerator:
                         forecast.best_coast = coast
                         break
 
-                # Outlook reason
-                if best_outlook == "Good":
-                    forecast.outlook_reason = "Small waves expected"
-                elif best_outlook == "Fair":
-                    forecast.outlook_reason = "Moderate conditions"
+                # Best time to dive (early morning is best due to calmer winds)
+                if best_outlook in ("Good", "Fair"):
+                    forecast.best_time = "5-9 AM"
                 elif best_outlook == "Poor":
-                    forecast.outlook_reason = "Elevated surf"
-                else:
-                    forecast.outlook_reason = "Large swell expected"
+                    forecast.best_time = "Early morning only"
+
+            # Add specific beach recommendations for today
+            if i == 0 and ranked_sites and not forecast.has_high_surf_warning:
+                # Get top beaches from ranked sites
+                recommended = []
+                for site in ranked_sites:
+                    if len(recommended) >= 5:
+                        break
+                    wave_ht = site.conditions.wave_height_ft
+                    if wave_ht and wave_ht < 4:  # Only recommend if waves < 4ft
+                        beach = BeachForecast(
+                            name=site.site.name,
+                            coast=self.COAST_DISPLAY_NAMES.get(site.site.coast, site.site.coast),
+                            wave_height_ft=wave_ht,
+                            outlook=site.grade,
+                            best_time="5-9 AM" if site.score.total_score >= 40 else None,
+                            notes=site.score.summary if site.score.warnings else None,
+                        )
+                        recommended.append(beach)
+                forecast.recommended_beaches = recommended
 
             forecasts.append(forecast)
 

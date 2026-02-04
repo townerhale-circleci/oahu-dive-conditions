@@ -6,7 +6,7 @@ Supports SMS (short), email (full), and plain text formats.
 from datetime import datetime
 from typing import Optional
 
-from src.digests.daily_digest import DailyDigest, CoastSummary, AlertInfo, APIStatus, ForecastDay
+from src.digests.daily_digest import DailyDigest, CoastSummary, AlertInfo, APIStatus, ForecastDay, BeachForecast
 from src.core.ranker import RankedSite
 
 
@@ -131,6 +131,9 @@ class DigestFormatter:
         html_parts.append('<div class="summary">')
         if d.diveable_sites == 0:
             html_parts.append('<p class="no-dive">No diveable sites today</p>')
+            # Explain WHY no sites are diveable
+            if any(a.type == "high_surf_warning" for a in d.alerts):
+                html_parts.append('<p class="warning-note">⚠️ High Surf Warning in effect - all sites marked unsafe regardless of local conditions</p>')
             html_parts.append(f'<p>Wave heights: {d.wave_range[0]:.1f} - {d.wave_range[1]:.1f} ft</p>')
         else:
             html_parts.append(f'<p class="diveable-count">{d.diveable_sites} of {d.total_sites} sites diveable</p>')
@@ -303,6 +306,7 @@ class DigestFormatter:
             .summary { background: #e8f4f8; padding: 15px; border-radius: 5px; margin: 15px 0; }
             .no-dive { color: #c92a2a; font-weight: bold; font-size: 1.2em; }
             .diveable-count { color: #2b8a3e; font-weight: bold; font-size: 1.2em; }
+            .warning-note { color: #d9480f; font-size: 0.95em; font-style: italic; }
             table { width: 100%; border-collapse: collapse; margin: 10px 0; }
             th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
             th { background: #f8f9fa; }
@@ -351,6 +355,14 @@ class DigestFormatter:
             .forecast-outlook.unsafe { color: #c92a2a; }
             .forecast-detail { font-size: 0.9em; color: #555; margin: 5px 0; }
             .forecast-detail strong { color: #333; }
+            .forecast-warning { background: #ff6b6b; color: white; padding: 5px 10px;
+                               border-radius: 3px; font-size: 0.85em; font-weight: bold; margin: 5px 0; }
+            .forecast-advisory { background: #ffa94d; color: white; padding: 5px 10px;
+                                border-radius: 3px; font-size: 0.85em; font-weight: bold; margin: 5px 0; }
+            .forecast-beaches { margin-top: 10px; padding-top: 10px; border-top: 1px solid #dee2e6; }
+            .beach-list { margin: 5px 0 0 0; padding-left: 20px; font-size: 0.85em; }
+            .beach-list li { margin: 3px 0; }
+            .beach-meta { color: #868e96; }
         """
 
     def _format_alerts_html(self, alerts: list[AlertInfo]) -> str:
@@ -478,6 +490,12 @@ class DigestFormatter:
             html.append(f'<h3>{day.day_name}</h3>')
             html.append(f'<div class="date">{day.date.strftime("%A, %b %d")}</div>')
 
+            # Warning indicator
+            if day.has_high_surf_warning:
+                html.append('<div class="forecast-warning">⚠️ HIGH SURF WARNING</div>')
+            elif day.has_high_surf_advisory:
+                html.append('<div class="forecast-advisory">⚠️ High Surf Advisory</div>')
+
             # Outlook
             html.append(f'<div class="forecast-outlook {outlook_lower}">{day.outlook}</div>')
             if day.outlook_reason:
@@ -500,9 +518,25 @@ class DigestFormatter:
             if day.rain_chance is not None and day.rain_chance > 0:
                 html.append(f'<div class="forecast-detail"><strong>Rain:</strong> {day.rain_chance}% chance</div>')
 
+            # Best time to dive
+            if day.best_time:
+                html.append(f'<div class="forecast-detail"><strong>Best time:</strong> {day.best_time}</div>')
+
             # Best coast
             if day.best_coast:
                 html.append(f'<div class="forecast-detail"><strong>Best area:</strong> {day.best_coast}</div>')
+
+            # Recommended beaches (for today)
+            if day.recommended_beaches:
+                html.append('<div class="forecast-beaches">')
+                html.append('<strong>Top beaches:</strong>')
+                html.append('<ul class="beach-list">')
+                for beach in day.recommended_beaches[:3]:
+                    wave_str = f"{beach.wave_height_ft:.1f}ft" if beach.wave_height_ft else ""
+                    time_str = f" • {beach.best_time}" if beach.best_time else ""
+                    html.append(f'<li>{beach.name} <span class="beach-meta">({beach.coast}, {wave_str}{time_str})</span></li>')
+                html.append('</ul>')
+                html.append('</div>')
 
             html.append('</div>')
 
