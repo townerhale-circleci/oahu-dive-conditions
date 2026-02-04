@@ -74,13 +74,19 @@ class APIStatus:
 
 @dataclass
 class BeachForecast:
-    """Forecast for a specific beach."""
+    """Forecast for a specific beach with detailed conditions."""
     name: str
     coast: str
     wave_height_ft: Optional[float] = None
-    outlook: str = "Unknown"
-    best_time: Optional[str] = None  # "5-9 AM", "Early Morning", etc.
-    notes: Optional[str] = None
+    wave_period_s: Optional[float] = None
+    wind_speed_mph: Optional[float] = None
+    wind_type: str = "unknown"  # "offshore", "onshore", "cross-shore"
+    wind_direction: Optional[str] = None
+    tide_phase: Optional[str] = None  # "rising", "falling", "high", "low"
+    outlook: str = "Unknown"  # Grade A-F
+    score: float = 0
+    best_time: Optional[str] = None  # "5-9 AM", etc.
+    why_recommended: Optional[str] = None  # Detailed explanation
 
 
 @dataclass
@@ -605,15 +611,9 @@ class DigestGenerator:
                 forecast.has_high_surf_advisory = has_surf_advisory
                 forecast.warning_expires = warning_expires
 
-            # Determine overall outlook - WARNINGS OVERRIDE WAVE-BASED OUTLOOK
-            if forecast.has_high_surf_warning:
-                forecast.outlook = "Unsafe"
-                forecast.outlook_reason = f"High Surf Warning in effect"
-                if forecast.warning_expires:
-                    forecast.outlook_reason += f" (until {forecast.warning_expires})"
-                forecast.best_coast = None
-                forecast.best_time = None
-            elif coast_outlooks:
+            # Determine overall outlook based on ACTUAL wave conditions
+            # High Surf Warning is informational only - doesn't override local conditions
+            if coast_outlooks:
                 outlook_priority = {"Good": 0, "Fair": 1, "Poor": 2, "Unsafe": 3}
                 # Best outlook among coasts
                 best_outlook = min(coast_outlooks.values(), key=lambda x: outlook_priority.get(x, 4))
@@ -647,24 +647,63 @@ class DigestGenerator:
                 elif best_outlook == "Poor":
                     forecast.best_time = "Early morning only"
 
-            # Add specific beach recommendations for today
-            if i == 0 and ranked_sites and not forecast.has_high_surf_warning:
-                # Get top beaches from ranked sites
+            # Add specific beach recommendations for today with detailed conditions
+            if i == 0 and ranked_sites:
+                # Get top beaches from ranked sites (sorted by score)
                 recommended = []
                 for site in ranked_sites:
                     if len(recommended) >= 5:
                         break
+
+                    # Only recommend sites with reasonable conditions
                     wave_ht = site.conditions.wave_height_ft
-                    if wave_ht and wave_ht < 4:  # Only recommend if waves < 4ft
-                        beach = BeachForecast(
-                            name=site.site.name,
-                            coast=self.COAST_DISPLAY_NAMES.get(site.site.coast, site.site.coast),
-                            wave_height_ft=wave_ht,
-                            outlook=site.grade,
-                            best_time="5-9 AM" if site.score.total_score >= 40 else None,
-                            notes=site.score.summary if site.score.warnings else None,
-                        )
-                        recommended.append(beach)
+                    if wave_ht is None or wave_ht > 6:
+                        continue
+
+                    # Build detailed recommendation
+                    cond = site.conditions
+                    score_result = site.score
+
+                    # Determine why this site is recommended
+                    reasons = []
+                    if wave_ht and wave_ht < 2:
+                        reasons.append(f"flat {wave_ht:.1f}ft waves")
+                    elif wave_ht and wave_ht < 4:
+                        reasons.append(f"small {wave_ht:.1f}ft waves")
+
+                    wind_type = score_result.wind_type if hasattr(score_result, 'wind_type') else "unknown"
+                    if wind_type == "offshore" and cond.wind_speed_mph:
+                        reasons.append(f"{cond.wind_speed_mph:.0f}mph offshore wind")
+                    elif wind_type == "cross-shore" and cond.wind_speed_mph and cond.wind_speed_mph < 10:
+                        reasons.append(f"light {cond.wind_speed_mph:.0f}mph cross-shore wind")
+                    elif cond.wind_speed_mph and cond.wind_speed_mph < 5:
+                        reasons.append("calm winds")
+
+                    if cond.tide_phase:
+                        reasons.append(f"{cond.tide_phase} tide")
+
+                    # Best time based on conditions
+                    best_time = "5-9 AM"  # Early morning default
+                    if cond.tide_phase == "low":
+                        best_time = "around low tide"
+                    elif cond.tide_phase == "rising":
+                        best_time = "5-9 AM (rising tide)"
+
+                    beach = BeachForecast(
+                        name=site.site.name,
+                        coast=self.COAST_DISPLAY_NAMES.get(site.site.coast, site.site.coast),
+                        wave_height_ft=wave_ht,
+                        wave_period_s=cond.wave_period_s,
+                        wind_speed_mph=cond.wind_speed_mph,
+                        wind_type=wind_type,
+                        wind_direction=None,  # TODO: add wind direction string
+                        tide_phase=cond.tide_phase,
+                        outlook=site.grade,
+                        score=score_result.total_score,
+                        best_time=best_time,
+                        why_recommended=" + ".join(reasons) if reasons else None,
+                    )
+                    recommended.append(beach)
                 forecast.recommended_beaches = recommended
 
             forecasts.append(forecast)

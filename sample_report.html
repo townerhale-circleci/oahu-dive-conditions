@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                   margin: 0; padding: 0; background: #f5f5f5; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; background: white; }
+            h1 { color: #0066cc; margin-bottom: 5px; }
+            h2 { color: #333; border-bottom: 2px solid #0066cc; padding-bottom: 5px; margin-top: 25px; }
+            .date { color: #666; margin-top: 0; }
+            .alert-banner { background: #ff6b6b; color: white; padding: 15px;
+                           border-radius: 5px; margin: 15px 0; font-weight: bold; }
+            .alert-banner.advisory { background: #ffa94d; }
+            .summary { background: #e8f4f8; padding: 15px; border-radius: 5px; margin: 15px 0; }
+            .no-dive { color: #c92a2a; font-weight: bold; font-size: 1.2em; }
+            .diveable-count { color: #2b8a3e; font-weight: bold; font-size: 1.2em; }
+            .warning-note { color: #d9480f; font-size: 0.95em; font-style: italic; }
+            table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+            th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+            th { background: #f8f9fa; }
+            .grade-A { color: #2b8a3e; font-weight: bold; }
+            .grade-B { color: #5c940d; font-weight: bold; }
+            .grade-C { color: #e67700; font-weight: bold; }
+            .grade-D { color: #d9480f; font-weight: bold; }
+            .grade-F { color: #c92a2a; font-weight: bold; }
+            .unsafe { color: #c92a2a; }
+            .footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd;
+                     color: #666; font-size: 0.9em; }
+            .methodology { background: #f8f9fa; padding: 15px; border-radius: 5px;
+                          margin: 10px 0; font-size: 0.9em; }
+            .methodology h3 { margin-top: 0; color: #495057; font-size: 1em; }
+            .methodology code { background: #e9ecef; padding: 2px 6px; border-radius: 3px;
+                               font-family: 'SFMono-Regular', monospace; }
+            .formula { background: #e3f2fd; padding: 10px; border-radius: 5px;
+                      margin: 10px 0; font-family: monospace; text-align: center; }
+            .scoring-table { font-size: 0.85em; }
+            .scoring-table th { background: #e9ecef; }
+            .api-status { margin: 10px 0; }
+            .api-status-item { display: flex; justify-content: space-between; align-items: center;
+                              padding: 8px 12px; border-bottom: 1px solid #eee; }
+            .api-success { color: #2b8a3e; }
+            .api-partial { color: #e67700; }
+            .api-fail { color: #c92a2a; }
+            .status-bar { width: 100px; height: 8px; background: #eee; border-radius: 4px; overflow: hidden; }
+            .status-bar-fill { height: 100%; transition: width 0.3s; }
+            .status-bar-fill.success { background: #2b8a3e; }
+            .status-bar-fill.partial { background: #e67700; }
+            .status-bar-fill.fail { background: #c92a2a; }
+            .forecast-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                            gap: 15px; margin: 15px 0; }
+            .forecast-day { background: #f8f9fa; border-radius: 8px; padding: 15px;
+                           border-left: 4px solid #0066cc; }
+            .forecast-day.outlook-good { border-left-color: #2b8a3e; }
+            .forecast-day.outlook-fair { border-left-color: #5c940d; }
+            .forecast-day.outlook-poor { border-left-color: #e67700; }
+            .forecast-day.outlook-unsafe { border-left-color: #c92a2a; }
+            .forecast-day h3 { margin: 0 0 10px 0; font-size: 1.1em; color: #333; }
+            .forecast-day .date { color: #666; font-size: 0.85em; margin-bottom: 10px; }
+            .forecast-outlook { font-weight: bold; font-size: 1.2em; margin: 10px 0; }
+            .forecast-outlook.good { color: #2b8a3e; }
+            .forecast-outlook.fair { color: #5c940d; }
+            .forecast-outlook.poor { color: #e67700; }
+            .forecast-outlook.unsafe { color: #c92a2a; }
+            .forecast-detail { font-size: 0.9em; color: #555; margin: 5px 0; }
+            .forecast-detail strong { color: #333; }
+            .forecast-warning { background: #ff6b6b; color: white; padding: 5px 10px;
+                               border-radius: 3px; font-size: 0.85em; font-weight: bold; margin: 5px 0; }
+            .forecast-advisory { background: #ffa94d; color: white; padding: 5px 10px;
+                                border-radius: 3px; font-size: 0.85em; font-weight: bold; margin: 5px 0; }
+            .forecast-beaches { margin-top: 10px; padding-top: 10px; border-top: 1px solid #dee2e6; }
+            .beach-list { margin: 5px 0 0 0; padding-left: 20px; font-size: 0.85em; }
+            .beach-list li { margin: 3px 0; }
+            .beach-meta { color: #868e96; }
+        
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Oahu Dive Conditions</h1>
+<p class="date">Tuesday, February 03, 2026 at 04:21 PM</p>
+<div class="alert-banner">High Surf Warning issued February 3 at 8:24AM HST until February 4 at 6:00PM HST by NWS Honolulu HI</div>
+<div class="alert-banner advisory">High Surf Advisory issued February 3 at 8:24AM HST until February 4 at 6:00PM HST by NWS Honolulu HI</div>
+<div class="alert-banner">High Wind Warning issued February 3 at 3:29AM HST until February 4 at 6:00AM HST by NWS Honolulu HI</div>
+<div class="summary">
+<p class="no-dive">No diveable sites today</p>
+<p class="warning-note">⚠️ High Surf Warning in effect - all sites marked unsafe regardless of local conditions</p>
+<p>Wave heights: 0.8 - 11.5 ft</p>
+</div>
+<h2>Top Sites</h2>
+<table>
+<tr><th>Rank</th><th>Site</th><th>Grade</th><th>Score</th><th>Waves</th><th>WPI</th><th>Status</th></tr>
+<tr title="High Surf Warning in effect - dangerous conditions; Wave height (11.5ft) exceeds safe threshold (4ft)">
+<td>1</td>
+<td>Electric Beach (Kahe Point)</td>
+<td class="grade-F">F</td>
+<td>0</td>
+<td>11.5ft</td>
+<td>1753.7</td>
+<td><span class="unsafe">Unsafe</span></td>
+</tr>
+<tr title="High Surf Warning in effect - dangerous conditions; Wave height (11.5ft) exceeds safe threshold (6ft)">
+<td>2</td>
+<td>Pokai Bay</td>
+<td class="grade-F">F</td>
+<td>0</td>
+<td>11.5ft</td>
+<td>1753.7</td>
+<td><span class="unsafe">Unsafe</span></td>
+</tr>
+<tr title="High Surf Warning in effect - dangerous conditions; Wave height (11.5ft) exceeds safe threshold (4ft)">
+<td>3</td>
+<td>Nanakuli Beach</td>
+<td class="grade-F">F</td>
+<td>0</td>
+<td>11.5ft</td>
+<td>1753.7</td>
+<td><span class="unsafe">Unsafe</span></td>
+</tr>
+<tr title="High Surf Warning in effect - dangerous conditions; Wave height (11.5ft) exceeds safe threshold (4ft)">
+<td>4</td>
+<td>Maili Beach (Maili Cove)</td>
+<td class="grade-F">F</td>
+<td>0</td>
+<td>11.5ft</td>
+<td>1753.7</td>
+<td><span class="unsafe">Unsafe</span></td>
+</tr>
+<tr title="High Surf Warning in effect - dangerous conditions; Wave height (11.5ft) exceeds safe threshold (4ft)">
+<td>5</td>
+<td>Ulehawa Beach</td>
+<td class="grade-F">F</td>
+<td>0</td>
+<td>11.5ft</td>
+<td>1753.7</td>
+<td><span class="unsafe">Unsafe</span></td>
+</tr>
+</table>
+<h2>By Coast</h2>
+<table>
+<tr><th>Coast</th><th>Diveable</th><th>Avg Waves</th></tr>
+<tr>
+<td>West Side</td>
+<td>0/6</td>
+<td>11.5ft</td>
+</tr>
+<tr>
+<td>South Shore</td>
+<td>0/10</td>
+<td>2.3ft</td>
+</tr>
+<tr>
+<td>Southeast</td>
+<td>0/1</td>
+<td>7.5ft</td>
+</tr>
+<tr>
+<td>Windward</td>
+<td>0/11</td>
+<td>5.8ft</td>
+</tr>
+</table>
+<h2>Tides</h2>
+<div class="tide-info">
+<p><strong>Next High Tide:</strong> 2026-02-04 05:41</p>
+<p><strong>Next Low Tide:</strong> 2026-02-04 12:23</p>
+</div>
+<h2>7-Day Forecast</h2>
+<div class="forecast-grid">
+<div class="forecast-day outlook-unsafe">
+<h3>Today</h3>
+<div class="date">Tuesday, Feb 03</div>
+<div class="forecast-warning">⚠️ HIGH SURF WARNING</div>
+<div class="forecast-outlook unsafe">Unsafe</div>
+<div class="forecast-detail">High Surf Warning in effect (until february 4 at 6:00pm hst)</div>
+<div class="forecast-detail"><strong>Waves:</strong> 2.3-17.7 ft</div>
+<div class="forecast-detail"><strong>Wind:</strong> 6-8 mph N</div>
+<div class="forecast-detail"><strong>Weather:</strong> Mostly Clear</div>
+<div class="forecast-detail"><strong>Rain:</strong> 6% chance</div>
+</div>
+<div class="forecast-day outlook-unsafe">
+<h3>Tomorrow</h3>
+<div class="date">Wednesday, Feb 04</div>
+<div class="forecast-warning">⚠️ HIGH SURF WARNING</div>
+<div class="forecast-outlook unsafe">Unsafe</div>
+<div class="forecast-detail">High Surf Warning in effect (until february 4 at 6:00pm hst)</div>
+<div class="forecast-detail"><strong>Waves:</strong> 2.1-9.8 ft</div>
+<div class="forecast-detail"><strong>Wind:</strong> 3-10 mph ENE</div>
+<div class="forecast-detail"><strong>Weather:</strong> Sunny</div>
+<div class="forecast-detail"><strong>Rain:</strong> 13% chance</div>
+</div>
+<div class="forecast-day outlook-good">
+<h3>Thursday</h3>
+<div class="date">Thursday, Feb 05</div>
+<div class="forecast-outlook good">Good</div>
+<div class="forecast-detail">Small waves expected</div>
+<div class="forecast-detail"><strong>Waves:</strong> 1.7-7.6 ft</div>
+<div class="forecast-detail"><strong>Wind:</strong> 3-10 mph SW</div>
+<div class="forecast-detail"><strong>Weather:</strong> Slight Chance Rain Showers</div>
+<div class="forecast-detail"><strong>Rain:</strong> 18% chance</div>
+<div class="forecast-detail"><strong>Best time:</strong> 5-9 AM</div>
+<div class="forecast-detail"><strong>Best area:</strong> South Shore</div>
+</div>
+<div class="forecast-day outlook-good">
+<h3>Friday</h3>
+<div class="date">Friday, Feb 06</div>
+<div class="forecast-outlook good">Good</div>
+<div class="forecast-detail">Small waves expected</div>
+<div class="forecast-detail"><strong>Waves:</strong> 2.0-5.0 ft</div>
+<div class="forecast-detail"><strong>Wind:</strong> 5-9 mph SW</div>
+<div class="forecast-detail"><strong>Weather:</strong> Chance Rain Showers</div>
+<div class="forecast-detail"><strong>Rain:</strong> 69% chance</div>
+<div class="forecast-detail"><strong>Best time:</strong> 5-9 AM</div>
+<div class="forecast-detail"><strong>Best area:</strong> South Shore</div>
+</div>
+<div class="forecast-day outlook-good">
+<h3>Saturday</h3>
+<div class="date">Saturday, Feb 07</div>
+<div class="forecast-outlook good">Good</div>
+<div class="forecast-detail">Small waves expected</div>
+<div class="forecast-detail"><strong>Waves:</strong> 2.2-6.8 ft</div>
+<div class="forecast-detail"><strong>Wind:</strong> 8-22 mph NE</div>
+<div class="forecast-detail"><strong>Weather:</strong> Chance Rain Showers</div>
+<div class="forecast-detail"><strong>Rain:</strong> 69% chance</div>
+<div class="forecast-detail"><strong>Best time:</strong> 5-9 AM</div>
+<div class="forecast-detail"><strong>Best area:</strong> South Shore</div>
+</div>
+<div class="forecast-day outlook-good">
+<h3>Sunday</h3>
+<div class="date">Sunday, Feb 08</div>
+<div class="forecast-outlook good">Good</div>
+<div class="forecast-detail">Small waves expected</div>
+<div class="forecast-detail"><strong>Waves:</strong> 2.0-5.3 ft</div>
+<div class="forecast-detail"><strong>Wind:</strong> 22-28 mph ENE</div>
+<div class="forecast-detail"><strong>Weather:</strong> Frequent Rain Showers</div>
+<div class="forecast-detail"><strong>Rain:</strong> 80% chance</div>
+<div class="forecast-detail"><strong>Best time:</strong> 5-9 AM</div>
+<div class="forecast-detail"><strong>Best area:</strong> South Shore</div>
+</div>
+<div class="forecast-day outlook-good">
+<h3>Monday</h3>
+<div class="date">Monday, Feb 09</div>
+<div class="forecast-outlook good">Good</div>
+<div class="forecast-detail">Small waves expected</div>
+<div class="forecast-detail"><strong>Waves:</strong> 2.6-3.1 ft</div>
+<div class="forecast-detail"><strong>Wind:</strong> 16-28 mph ENE</div>
+<div class="forecast-detail"><strong>Weather:</strong> Chance Rain Showers</div>
+<div class="forecast-detail"><strong>Rain:</strong> 78% chance</div>
+<div class="forecast-detail"><strong>Best time:</strong> 5-9 AM</div>
+<div class="forecast-detail"><strong>Best area:</strong> South Shore</div>
+</div>
+</div>
+<h2>Methodology</h2>
+<div class="methodology">
+<h3>Wave Power Index (WPI)</h3>
+<p>The primary metric for assessing dive conditions:</p>
+<div class="formula">WPI = height² × period</div>
+<p>Where <code>height</code> is wave height in feet and <code>period</code> is wave period in seconds.</p>
+<p><strong>Interpretation:</strong> WPI &lt; 5 = Excellent | WPI 5-20 = Good | WPI 20-50 = Challenging | WPI &gt; 50 = Poor</p>
+<h3>Scoring Factors</h3>
+<table class="scoring-table">
+<tr><th>Factor</th><th>Weight</th><th>Description</th></tr>
+<tr><td>Wave Power</td><td>35%</td><td>Lower WPI scores higher</td></tr>
+<tr><td>Wind</td><td>25%</td><td>Calm/offshore winds preferred</td></tr>
+<tr><td>Visibility</td><td>20%</td><td>Based on rainfall, discharge, advisories</td></tr>
+<tr><td>Tide</td><td>10%</td><td>Site-specific tide preferences</td></tr>
+<tr><td>Time of Day</td><td>10%</td><td>Early AM (5-9am) favored</td></tr>
+</table>
+<h3>Safety Gates</h3>
+<p>These conditions automatically mark a site as <strong>Unsafe</strong>:</p>
+<ul>
+<li>High Surf Warning active</li>
+<li>Brown Water Advisory at site</li>
+<li>Wave height exceeds site threshold (typically &gt;6ft)</li>
+</ul>
+<h3>Grade Scale</h3>
+<p>
+<span class="grade-A">A (85+)</span> Excellent | 
+<span class="grade-B">B (70-84)</span> Good | 
+<span class="grade-C">C (55-69)</span> Fair | 
+<span class="grade-D">D (40-54)</span> Poor | 
+<span class="grade-F">F (&lt;40)</span> Unsafe
+</p>
+</div>
+<h2>Data Sources Status</h2>
+<div class="api-status">
+<div class="api-status-item">
+<span>NDBC Buoys</span>
+<div style="display: flex; align-items: center; gap: 10px;">
+<div class="status-bar"><div class="status-bar-fill success" style="width: 100.0%"></div></div>
+<span class="api-success">100%</span>
+</div>
+</div>
+<div class="api-status-item">
+<span>PacIOOS Wave Model</span>
+<div style="display: flex; align-items: center; gap: 10px;">
+<div class="status-bar"><div class="status-bar-fill success" style="width: 100.0%"></div></div>
+<span class="api-success">100%</span>
+</div>
+</div>
+<div class="api-status-item">
+<span>NWS Weather</span>
+<div style="display: flex; align-items: center; gap: 10px;">
+<div class="status-bar"><div class="status-bar-fill success" style="width: 96.42857142857143%"></div></div>
+<span class="api-success">96%</span>
+</div>
+</div>
+<div class="api-status-item">
+<span>NOAA Tides</span>
+<div style="display: flex; align-items: center; gap: 10px;">
+<div class="status-bar"><div class="status-bar-fill success" style="width: 100.0%"></div></div>
+<span class="api-success">100%</span>
+</div>
+</div>
+<div class="api-status-item">
+<span>USGS Streams</span>
+<div style="display: flex; align-items: center; gap: 10px;">
+<div class="status-bar"><div class="status-bar-fill success" style="width: 100.0%"></div></div>
+<span class="api-success">100%</span>
+</div>
+</div>
+<div class="api-status-item">
+<span>Water Quality</span>
+<div style="display: flex; align-items: center; gap: 10px;">
+<div class="status-bar"><div class="status-bar-fill partial" style="width: 0%"></div></div>
+<span class="api-partial">No data</span>
+</div>
+</div>
+</div>
+<div class="footer">
+<p>Data sources: NDBC buoys, NWS, NOAA CO-OPS, USGS, Hawaii DOH</p>
+</div>
+</div>
+</body>
+</html>

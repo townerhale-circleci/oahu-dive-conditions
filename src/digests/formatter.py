@@ -131,14 +131,14 @@ class DigestFormatter:
         html_parts.append('<div class="summary">')
         if d.diveable_sites == 0:
             html_parts.append('<p class="no-dive">No diveable sites today</p>')
-            # Explain WHY no sites are diveable
-            if any(a.type == "high_surf_warning" for a in d.alerts):
-                html_parts.append('<p class="warning-note">⚠️ High Surf Warning in effect - all sites marked unsafe regardless of local conditions</p>')
             html_parts.append(f'<p>Wave heights: {d.wave_range[0]:.1f} - {d.wave_range[1]:.1f} ft</p>')
         else:
             html_parts.append(f'<p class="diveable-count">{d.diveable_sites} of {d.total_sites} sites diveable</p>')
             if d.best_coast:
                 html_parts.append(f'<p>Best conditions: <strong>{d.best_coast}</strong></p>')
+            # Show warning as informational if present
+            if any(a.type == "high_surf_warning" for a in d.alerts):
+                html_parts.append('<p class="warning-note">⚠️ High Surf Warning active for some areas - check local conditions</p>')
         html_parts.append('</div>')
 
         # Top sites table
@@ -360,9 +360,12 @@ class DigestFormatter:
             .forecast-advisory { background: #ffa94d; color: white; padding: 5px 10px;
                                 border-radius: 3px; font-size: 0.85em; font-weight: bold; margin: 5px 0; }
             .forecast-beaches { margin-top: 10px; padding-top: 10px; border-top: 1px solid #dee2e6; }
-            .beach-list { margin: 5px 0 0 0; padding-left: 20px; font-size: 0.85em; }
-            .beach-list li { margin: 3px 0; }
-            .beach-meta { color: #868e96; }
+            .beach-card { background: white; border: 1px solid #dee2e6; border-radius: 6px;
+                         padding: 10px; margin: 8px 0; }
+            .beach-name { font-weight: bold; color: #0066cc; }
+            .beach-location { font-size: 0.8em; color: #868e96; }
+            .beach-conditions { font-size: 0.85em; margin: 5px 0; color: #495057; }
+            .beach-reason { font-size: 0.85em; color: #2b8a3e; margin-top: 5px; }
         """
 
     def _format_alerts_html(self, alerts: list[AlertInfo]) -> str:
@@ -526,16 +529,33 @@ class DigestFormatter:
             if day.best_coast:
                 html.append(f'<div class="forecast-detail"><strong>Best area:</strong> {day.best_coast}</div>')
 
-            # Recommended beaches (for today)
+            # Recommended beaches (for today) with detailed conditions
             if day.recommended_beaches:
                 html.append('<div class="forecast-beaches">')
-                html.append('<strong>Top beaches:</strong>')
-                html.append('<ul class="beach-list">')
+                html.append('<strong>Recommended beaches:</strong>')
                 for beach in day.recommended_beaches[:3]:
-                    wave_str = f"{beach.wave_height_ft:.1f}ft" if beach.wave_height_ft else ""
-                    time_str = f" • {beach.best_time}" if beach.best_time else ""
-                    html.append(f'<li>{beach.name} <span class="beach-meta">({beach.coast}, {wave_str}{time_str})</span></li>')
-                html.append('</ul>')
+                    html.append('<div class="beach-card">')
+                    html.append(f'<div class="beach-name">{beach.name}</div>')
+                    html.append(f'<div class="beach-location">{beach.coast}</div>')
+
+                    # Detailed conditions
+                    details = []
+                    if beach.wave_height_ft:
+                        details.append(f"Waves: {beach.wave_height_ft:.1f}ft")
+                    if beach.wind_speed_mph and beach.wind_type:
+                        wind_icon = "✓" if beach.wind_type == "offshore" else "✗" if beach.wind_type == "onshore" else ""
+                        details.append(f"Wind: {beach.wind_speed_mph:.0f}mph {beach.wind_type} {wind_icon}")
+                    if beach.tide_phase:
+                        details.append(f"Tide: {beach.tide_phase}")
+                    if beach.best_time:
+                        details.append(f"Best time: {beach.best_time}")
+
+                    html.append(f'<div class="beach-conditions">{" • ".join(details)}</div>')
+
+                    if beach.why_recommended:
+                        html.append(f'<div class="beach-reason">👍 {beach.why_recommended}</div>')
+
+                    html.append('</div>')
                 html.append('</div>')
 
             html.append('</div>')

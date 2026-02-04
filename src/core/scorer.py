@@ -95,6 +95,7 @@ class ScoringResult:
 
     # Computed values
     wave_power_index: Optional[float] = None
+    wind_type: str = "unknown"  # "offshore", "onshore", "cross-shore", "unknown"
 
     # Recommendations
     summary: str = ""
@@ -164,6 +165,9 @@ class DiveScorer:
     def check_safety_gates(self, inputs: ScoringInput) -> tuple[bool, list[SafetyGate]]:
         """Check all safety gates.
 
+        Note: High Surf Warning is NOT a safety gate - it's island-wide and may not
+        apply to all coasts. Sites are evaluated based on actual local wave height.
+
         Args:
             inputs: Scoring inputs
 
@@ -172,15 +176,7 @@ class DiveScorer:
         """
         failed_gates = []
 
-        # Gate 1: High surf warning
-        if inputs.high_surf_warning:
-            failed_gates.append(SafetyGate(
-                passed=False,
-                reason="High Surf Warning in effect - dangerous conditions",
-                gate_name="high_surf_warning",
-            ))
-
-        # Gate 2: Brown water advisory
+        # Gate 1: Brown water advisory (site-specific water quality issue)
         if inputs.brown_water_advisory:
             failed_gates.append(SafetyGate(
                 passed=False,
@@ -188,7 +184,7 @@ class DiveScorer:
                 gate_name="brown_water_advisory",
             ))
 
-        # Gate 3: Wave height exceeds site threshold
+        # Gate 2: Wave height exceeds site threshold
         max_height = inputs.site_max_safe_height_ft or self.MAX_WAVE_HEIGHT_FT
         if inputs.wave_height_ft is not None and inputs.wave_height_ft > max_height:
             failed_gates.append(SafetyGate(
@@ -228,58 +224,80 @@ class DiveScorer:
         wind_speed_mph: Optional[float],
         wind_direction_deg: Optional[float],
         site_exposure_primary: Optional[str],
-    ) -> float:
-        """Score wind conditions.
+    ) -> tuple[float, str]:
+        """Score wind conditions based on speed and offshore/onshore direction.
 
-        Best: <5kt with offshore component
-        Worst: >25kt with onshore component
+        Offshore wind (land→sea): GOOD for diving - flattens waves, better visibility
+        Onshore wind (sea→land): BAD for diving - choppy water, poor visibility
 
         Args:
             wind_speed_mph: Wind speed
             wind_direction_deg: Wind direction (where it's coming FROM)
-            site_exposure_primary: Site's primary swell exposure direction
+            site_exposure_primary: Site's primary exposure direction (shore faces this way)
 
         Returns:
-            Score 0-100
+            Tuple of (score 0-100, wind_type description)
         """
         if wind_speed_mph is None:
-            return 50.0  # Neutral when no data
+            return 50.0, "unknown"
 
-        # Base score from wind speed
+        # Base score from wind speed (calm is always good)
         if wind_speed_mph <= self.WIND_CALM:
             speed_score = 100.0
         elif wind_speed_mph >= self.WIND_STRONG:
-            speed_score = 0.0
+            speed_score = 20.0  # Even strong offshore can be OK
         else:
-            speed_score = 100.0 * (self.WIND_STRONG - wind_speed_mph) / (self.WIND_STRONG - self.WIND_CALM)
+            speed_score = 100.0 - (80.0 * (wind_speed_mph - self.WIND_CALM) / (self.WIND_STRONG - self.WIND_CALM))
 
-        # Adjust for wind direction relative to site exposure
-        direction_modifier = 1.0
+        # Calculate offshore/onshore factor and adjust score significantly
+        wind_type = "variable"
         if wind_direction_deg is not None and site_exposure_primary is not None:
-            onshore_factor = self._calculate_onshore_factor(
+            offshore_factor = self._calculate_offshore_factor(
                 wind_direction_deg,
                 site_exposure_primary
             )
-            # Onshore winds reduce score, offshore winds boost it slightly
-            direction_modifier = 1.0 - (onshore_factor * 0.4)  # Max 40% penalty for onshore
 
-        return max(0.0, min(100.0, speed_score * direction_modifier))
+            # offshore_factor: 1.0 = pure offshore, -1.0 = pure onshore, 0 = cross-shore
 
-    def _calculate_onshore_factor(
+            if offshore_factor > 0.5:
+                # Offshore wind - GOOD: boost score, especially at higher wind speeds
+                wind_type = "offshore"
+                # Offshore wind at 10-15 mph can actually improve conditions
+                speed_score = min(100.0, speed_score + (offshore_factor * 30))
+            elif offshore_factor < -0.5:
+                # Onshore wind - BAD: significant penalty
+                wind_type = "onshore"
+                # Onshore wind is bad, especially with higher speeds
+                penalty = abs(offshore_factor) * (40 + wind_speed_mph * 2)
+                speed_score = max(0.0, speed_score - penalty)
+            else:
+                # Cross-shore wind - neutral to slightly negative
+                wind_type = "cross-shore"
+                speed_score = speed_score * 0.9
+
+        return max(0.0, min(100.0, speed_score)), wind_type
+
+    def _calculate_offshore_factor(
         self,
         wind_direction_deg: float,
         site_exposure: str,
     ) -> float:
-        """Calculate how onshore the wind is (0=offshore, 1=directly onshore).
+        """Calculate offshore/onshore factor.
+
+        Offshore = wind blowing FROM land TO sea (opposite of shore facing direction)
+        Onshore = wind blowing FROM sea TO land (same as shore facing direction)
 
         Args:
-            wind_direction_deg: Wind direction (where wind comes FROM)
-            site_exposure: Site's primary exposure direction
+            wind_direction_deg: Wind direction (where wind comes FROM, 0-360)
+            site_exposure: Site's primary exposure direction (direction shore faces)
 
         Returns:
-            Factor 0-1 indicating onshore component
+            Factor from -1 to +1:
+              +1.0 = pure offshore (wind from opposite direction of shore)
+              -1.0 = pure onshore (wind from same direction as shore faces)
+               0.0 = cross-shore (wind perpendicular to shore)
         """
-        # Convert exposure to degrees
+        # Convert exposure to degrees (direction the shore/site faces)
         exposure_map = {
             "N": 0, "NNE": 22.5, "NE": 45, "ENE": 67.5,
             "E": 90, "ESE": 112.5, "SE": 135, "SSE": 157.5,
@@ -289,16 +307,25 @@ class DiveScorer:
 
         site_facing_deg = exposure_map.get(site_exposure.upper(), 0)
 
-        # Calculate angle difference
-        # Wind blowing FROM the same direction as site faces = onshore
-        diff = abs(wind_direction_deg - site_facing_deg)
-        if diff > 180:
-            diff = 360 - diff
+        # Calculate angle difference between wind direction and shore facing direction
+        # If wind comes FROM the same direction the shore FACES = onshore
+        # If wind comes FROM the opposite direction = offshore
+        diff = wind_direction_deg - site_facing_deg
 
-        # 0 degrees difference = directly onshore (factor=1)
-        # 180 degrees = directly offshore (factor=0)
-        onshore_factor = 1.0 - (diff / 180.0)
-        return max(0.0, min(1.0, onshore_factor))
+        # Normalize to -180 to +180
+        while diff > 180:
+            diff -= 360
+        while diff < -180:
+            diff += 360
+
+        # diff = 0: wind from same direction as shore faces = ONSHORE
+        # diff = 180 or -180: wind from opposite direction = OFFSHORE
+        # diff = 90 or -90: cross-shore
+
+        # Convert to offshore factor: 180° diff = +1 (offshore), 0° diff = -1 (onshore)
+        offshore_factor = (abs(diff) - 90) / 90.0
+
+        return max(-1.0, min(1.0, offshore_factor))
 
     def score_visibility(
         self,
@@ -477,7 +504,7 @@ class DiveScorer:
 
         # Calculate component scores
         wave_power_score = self.score_wave_power(wpi)
-        wind_score = self.score_wind(
+        wind_score, wind_type = self.score_wind(
             inputs.wind_speed_mph,
             inputs.wind_direction_deg,
             inputs.site_swell_exposure_primary,
@@ -506,17 +533,21 @@ class DiveScorer:
         grade = self._score_to_grade(total_score)
 
         # Add warnings for concerning conditions
+        if inputs.high_surf_warning:
+            warnings.append("High Surf Warning in effect for some areas")
         if inputs.high_surf_advisory:
             warnings.append("High Surf Advisory in effect - use caution")
         if wpi is not None and wpi > 20:
             warnings.append(f"Elevated wave power index ({wpi:.1f}) - challenging conditions")
-        if inputs.wind_speed_mph is not None and inputs.wind_speed_mph > 15:
-            warnings.append(f"Moderate to strong winds ({inputs.wind_speed_mph:.0f} mph)")
+        if wind_type == "onshore" and inputs.wind_speed_mph and inputs.wind_speed_mph > 10:
+            warnings.append(f"Onshore winds ({inputs.wind_speed_mph:.0f} mph) - expect choppy conditions")
+        elif inputs.wind_speed_mph is not None and inputs.wind_speed_mph > 20:
+            warnings.append(f"Strong winds ({inputs.wind_speed_mph:.0f} mph)")
         if visibility_score < 50:
             warnings.append("Reduced visibility likely due to recent rainfall or runoff")
 
         # Generate summary
-        summary = self._generate_summary(total_score, grade, wpi, inputs)
+        summary = self._generate_summary(total_score, grade, wpi, inputs, wind_type)
 
         return ScoringResult(
             total_score=round(total_score, 1),
@@ -530,6 +561,7 @@ class DiveScorer:
             safety_gates_passed=True,
             failed_gates=[],
             wave_power_index=round(wpi, 2) if wpi else None,
+            wind_type=wind_type,
             summary=summary,
             warnings=warnings,
         )
@@ -560,6 +592,7 @@ class DiveScorer:
         grade: ScoreGrade,
         wpi: Optional[float],
         inputs: ScoringInput,
+        wind_type: str = "unknown",
     ) -> str:
         """Generate human-readable summary.
 
@@ -568,6 +601,7 @@ class DiveScorer:
             grade: Letter grade
             wpi: Wave Power Index
             inputs: Original inputs
+            wind_type: Type of wind (offshore, onshore, cross-shore)
 
         Returns:
             Summary string
@@ -586,15 +620,20 @@ class DiveScorer:
             summary_parts.append(f"Waves: {inputs.wave_height_ft:.1f}ft")
 
         if inputs.wind_speed_mph is not None:
-            summary_parts.append(f"Wind: {inputs.wind_speed_mph:.0f}mph")
+            wind_desc = f"Wind: {inputs.wind_speed_mph:.0f}mph"
+            if wind_type == "offshore":
+                wind_desc += " offshore ✓"
+            elif wind_type == "onshore":
+                wind_desc += " onshore ✗"
+            summary_parts.append(wind_desc)
 
         if wpi is not None:
             if wpi < 10:
-                summary_parts.append("Very calm seas")
+                summary_parts.append("Calm seas")
             elif wpi < 25:
-                summary_parts.append("Moderate wave energy")
+                summary_parts.append("Moderate swells")
             else:
-                summary_parts.append("High wave energy")
+                summary_parts.append("Large swells")
 
         return " | ".join(summary_parts)
 
