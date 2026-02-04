@@ -16,6 +16,7 @@ from src.core.site import SiteDatabase, get_site_database
 from src.clients.buoy_client import BuoyClient, OAHU_BUOYS
 from src.clients.nws_client import NWSClient
 from src.clients.pacioos_client import PacIOOSClient
+from src.clients.openweathermap_client import OpenWeatherMapClient
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,13 @@ class BeachForecast:
     score: float = 0
     best_time: Optional[str] = None  # "5-9 AM", etc.
     why_recommended: Optional[str] = None  # Detailed explanation
+
+    @property
+    def wpi(self) -> Optional[float]:
+        """Calculate Wave Power Index = height² × period."""
+        if self.wave_height_ft is not None and self.wave_period_s is not None:
+            return self.wave_height_ft ** 2 * self.wave_period_s
+        return None
 
 
 @dataclass
@@ -235,7 +243,9 @@ class DigestGenerator:
             # Populate overall stats
             digest.total_sites = len(all_ranked)
             digest.diveable_sites = sum(1 for r in all_ranked if r.is_diveable)
-            digest.top_sites = all_ranked[:self.top_sites_count]
+            # Filter out Hanauma Bay from top sites (user never goes there)
+            filtered_sites = [r for r in all_ranked if "hanauma" not in r.site.name.lower()]
+            digest.top_sites = filtered_sites[:self.top_sites_count]
 
             # Calculate wave/wind ranges
             digest.wave_range = self._calculate_wave_range(all_ranked)
@@ -440,6 +450,72 @@ class DigestGenerator:
                 api_stats["usgs"].success_count += 1
 
         return list(api_stats.values())
+
+    def _find_best_time_window(
+        self,
+        pacioos: PacIOOSClient,
+        lat: float,
+        lon: float,
+        target_date,
+    ) -> Optional[str]:
+        """Find the best time window for diving based on hourly wave data.
+
+        Args:
+            pacioos: PacIOOS client instance
+            lat: Site latitude
+            lon: Site longitude
+            target_date: Date to find best time for
+
+        Returns:
+            String like "06:00-10:00" or None if no data
+        """
+        try:
+            # Get hourly wave data for this location
+            wave_df = pacioos.get_wave_data(lat, lon, hours=48)
+            if wave_df.empty:
+                return None
+
+            wave_df["time_parsed"] = pd.to_datetime(wave_df["time"])
+            wave_df["date"] = wave_df["time_parsed"].dt.date
+            wave_df["hour"] = wave_df["time_parsed"].dt.hour
+
+            # Filter to target date
+            day_data = wave_df[wave_df["date"] == target_date].copy()
+            if day_data.empty:
+                return None
+
+            # Convert wave height to feet
+            day_data["wave_ft"] = day_data["wave_height_m"] * 3.28084
+
+            # Find hours with smallest waves (daylight hours 5 AM - 6 PM)
+            daylight = day_data[(day_data["hour"] >= 5) & (day_data["hour"] <= 18)]
+            if daylight.empty:
+                return None
+
+            # Find the best 3-4 hour window with lowest average waves
+            best_start = None
+            best_avg = float("inf")
+
+            for start_hour in range(5, 16):  # Windows starting 5 AM to 3 PM
+                window = daylight[(daylight["hour"] >= start_hour) & (daylight["hour"] < start_hour + 4)]
+                if len(window) >= 2:
+                    avg_wave = window["wave_ft"].mean()
+                    if avg_wave < best_avg:
+                        best_avg = avg_wave
+                        best_start = start_hour
+
+            if best_start is not None:
+                end_hour = min(best_start + 4, 18)
+                return f"{best_start:02d}:00-{end_hour:02d}:00"
+
+            # Fallback: just find the single best hour
+            best_row = daylight.loc[daylight["wave_ft"].idxmin()]
+            best_hour = int(best_row["hour"])
+            return f"{best_hour:02d}:00-{min(best_hour + 2, 18):02d}:00"
+
+        except Exception as e:
+            logger.debug(f"Error finding best time window: {e}")
+            return None
 
     def _generate_forecast(
         self,
@@ -651,11 +727,13 @@ class DigestGenerator:
             recommended = []
 
             if i == 0 and ranked_sites:
-                # TODAY: Use actual ranked site data
+                # TODAY: Use actual ranked site data - show ALL diveable sites
                 for site in ranked_sites:
-                    if len(recommended) >= 3:
-                        break
+                    # Skip Hanauma Bay (user never goes there)
+                    if "hanauma" in site.site.name.lower():
+                        continue
 
+                    # Only include diveable sites (wave height <= 6ft)
                     wave_ht = site.conditions.wave_height_ft
                     if wave_ht is None or wave_ht > 6:
                         continue
@@ -663,29 +741,79 @@ class DigestGenerator:
                     cond = site.conditions
                     score_result = site.score
 
-                    # Build reasons
+                    # For TODAY: Can't use PacIOOS (forecast only starts tomorrow)
+                    # Use site preferences and current conditions
+                    site_optimal_time = site.site.optimal_time  # "morning" or "any"
+                    site_optimal_tide = site.site.optimal_tide  # "high", "low", or "any"
+
+                    # Build best time recommendation
+                    if site_optimal_time == "morning":
+                        best_time = "06:00-10:00"
+                    else:
+                        # Check current time and recommend accordingly
+                        current_hour = datetime.now().hour
+                        if current_hour < 10:
+                            best_time = "now - 10:00"
+                        elif current_hour < 14:
+                            best_time = "now - 14:00"
+                        else:
+                            best_time = "now - sunset"
+
+                    # Add tide recommendation
+                    if site_optimal_tide == "high" and cond.next_high_tide:
+                        best_time = f"{best_time} (high tide: {cond.next_high_tide[-5:]})"
+                    elif site_optimal_tide == "low" and cond.next_low_tide:
+                        best_time = f"{best_time} (low tide: {cond.next_low_tide[-5:]})"
+                    elif cond.tide_phase:
+                        best_time = f"{best_time} ({cond.tide_phase} tide)"
+
+                    # Build detailed "Why" explanation
                     reasons = []
-                    if wave_ht and wave_ht < 2:
-                        reasons.append(f"flat {wave_ht:.1f}ft waves")
-                    elif wave_ht and wave_ht < 4:
-                        reasons.append(f"small {wave_ht:.1f}ft waves")
-
                     wind_type = score_result.wind_type if hasattr(score_result, 'wind_type') else "unknown"
-                    if wind_type == "offshore" and cond.wind_speed_mph:
-                        reasons.append(f"{cond.wind_speed_mph:.0f}mph offshore wind")
-                    elif wind_type == "cross-shore" and cond.wind_speed_mph and cond.wind_speed_mph < 10:
-                        reasons.append(f"light {cond.wind_speed_mph:.0f}mph cross-shore wind")
-                    elif cond.wind_speed_mph and cond.wind_speed_mph < 5:
-                        reasons.append("calm winds")
 
+                    # WPI assessment
+                    wpi = None
+                    if wave_ht and cond.wave_period_s:
+                        wpi = wave_ht ** 2 * cond.wave_period_s
+                        if wpi < 5:
+                            reasons.append(f"Excellent WPI ({wpi:.0f})")
+                        elif wpi < 20:
+                            reasons.append(f"Good WPI ({wpi:.0f})")
+                        elif wpi < 50:
+                            reasons.append(f"Moderate WPI ({wpi:.0f})")
+                        else:
+                            reasons.append(f"High WPI ({wpi:.0f}) - challenging")
+
+                    # Wave assessment
+                    if wave_ht:
+                        if wave_ht < 1:
+                            reasons.append("glass-flat conditions")
+                        elif wave_ht < 2:
+                            reasons.append("very calm surface")
+                        elif wave_ht < 3:
+                            reasons.append("small manageable waves")
+                        elif wave_ht < 4:
+                            reasons.append("moderate chop")
+
+                    # Wind assessment
+                    if cond.wind_speed_mph:
+                        if cond.wind_speed_mph < 5:
+                            reasons.append("near calm winds")
+                        elif wind_type == "offshore":
+                            reasons.append(f"offshore wind ({cond.wind_speed_mph:.0f}mph) - good visibility")
+                        elif wind_type == "onshore":
+                            reasons.append(f"onshore wind ({cond.wind_speed_mph:.0f}mph) - reduced viz")
+                        elif wind_type == "cross-shore" and cond.wind_speed_mph < 12:
+                            reasons.append(f"light cross-shore ({cond.wind_speed_mph:.0f}mph)")
+                        elif cond.wind_speed_mph > 15:
+                            reasons.append(f"windy ({cond.wind_speed_mph:.0f}mph)")
+
+                    # Tide info
                     if cond.tide_phase:
-                        reasons.append(f"{cond.tide_phase} tide")
-
-                    best_time = "5-9 AM"
-                    if cond.tide_phase == "low":
-                        best_time = "around low tide"
-                    elif cond.tide_phase == "rising":
-                        best_time = "5-9 AM (rising tide)"
+                        if site.site.optimal_tide == cond.tide_phase:
+                            reasons.append(f"optimal {cond.tide_phase} tide")
+                        else:
+                            reasons.append(f"{cond.tide_phase} tide")
 
                     beach = BeachForecast(
                         name=site.site.name,
@@ -698,83 +826,160 @@ class DigestGenerator:
                         tide_phase=cond.tide_phase,
                         outlook=site.grade,
                         score=score_result.total_score,
-                        best_time=best_time,
+                        best_time=best_time or "morning",
                         why_recommended=" + ".join(reasons) if reasons else None,
                     )
                     recommended.append(beach)
 
-            elif coast_outlooks and ranked_sites:
-                # FUTURE DAYS: Use coast forecasts + site database to recommend beaches
-                # Find the best coast(s) for this day
-                best_coasts = [coast for coast, outlook in coast_outlooks.items()
-                               if outlook in ("Good", "Fair")]
+            elif ranked_sites:
+                # FUTURE DAYS: Query PacIOOS for waves and OpenWeatherMap for wind
+                # This gives us per-site forecasts instead of coast/island-level
+                owm = OpenWeatherMapClient()
 
-                if not best_coasts and coast_outlooks:
-                    # If no good coasts, use the best available
-                    outlook_priority = {"Good": 0, "Fair": 1, "Poor": 2, "Unsafe": 3}
-                    best_coasts = [min(coast_outlooks.keys(),
-                                      key=lambda c: outlook_priority.get(coast_outlooks[c], 4))]
+                for site in ranked_sites:
+                    # Skip Hanauma Bay
+                    if "hanauma" in site.site.name.lower():
+                        continue
 
-                # Get forecast wave height for each coast
-                coast_waves = {}
-                for coast_name, wave_df in buoy_forecasts.items():
-                    day_waves = wave_df[wave_df["date"] == forecast_date]
-                    if not day_waves.empty:
-                        heights = day_waves["wave_height_m"].dropna() * 3.28084
-                        if not heights.empty:
-                            coast_waves[coast_name] = heights.mean()
+                    site_lat = site.site.coordinates.lat
+                    site_lon = site.site.coordinates.lon
 
-                # Map coast names to site database coast keys
-                coast_key_map = {
-                    "South Shore": "south_shore",
-                    "West Side": "west_side",
-                    "North Shore": "north_shore",
-                    "Windward": "windward",
-                    "South": "south_shore",
-                }
+                    # Get site-specific wave forecast from PacIOOS
+                    wave_ht = None
+                    wave_period = None
+                    best_time_range = None
+                    try:
+                        site_wave_df = pacioos.get_forecast(site_lat, site_lon, hours=min((i+1) * 24, 120))
+                        if not site_wave_df.empty:
+                            site_wave_df["time_parsed"] = pd.to_datetime(site_wave_df["time"])
+                            site_wave_df["date"] = site_wave_df["time_parsed"].dt.date
+                            site_wave_df["hour"] = site_wave_df["time_parsed"].dt.hour
+                            day_waves = site_wave_df[site_wave_df["date"] == forecast_date]
+                            if not day_waves.empty:
+                                heights = day_waves["wave_height_m"].dropna() * 3.28084
+                                periods = day_waves["period_s"].dropna()
+                                if not heights.empty:
+                                    wave_ht = heights.mean()
+                                if not periods.empty:
+                                    wave_period = periods.mean()
 
-                # Get top sites from best coasts
-                for coast_name in best_coasts[:2]:  # Top 2 coasts
-                    coast_key = coast_key_map.get(coast_name, coast_name.lower().replace(" ", "_"))
-                    wave_ht = coast_waves.get(coast_name, 3.0)  # Default estimate
+                                # Find best time window from hourly data
+                                day_waves = day_waves.copy()
+                                day_waves["wave_ft"] = day_waves["wave_height_m"] * 3.28084
+                                daylight = day_waves[(day_waves["hour"] >= 5) & (day_waves["hour"] <= 18)]
+                                if not daylight.empty:
+                                    # Find best 4-hour window
+                                    best_start = None
+                                    best_avg = float("inf")
+                                    for start_hour in range(5, 16):
+                                        window = daylight[(daylight["hour"] >= start_hour) & (daylight["hour"] < start_hour + 4)]
+                                        if len(window) >= 2:
+                                            avg = window["wave_ft"].mean()
+                                            if avg < best_avg:
+                                                best_avg = avg
+                                                best_start = start_hour
+                                    if best_start is not None:
+                                        best_time_range = f"{best_start:02d}:00-{min(best_start + 4, 18):02d}:00"
+                    except Exception as e:
+                        logger.debug(f"PacIOOS query failed for {site.site.name}: {e}")
 
-                    # Find top sites for this coast from ranked_sites
-                    coast_sites = [s for s in ranked_sites
-                                   if s.site.coast == coast_key][:3]
+                    # Skip if no wave data or waves too high
+                    if wave_ht is None or wave_ht > 6:
+                        continue
 
-                    for site in coast_sites:
-                        if len(recommended) >= 3:
-                            break
+                    # Get site-specific wind forecast from OpenWeatherMap
+                    site_wind = None
+                    wind_dir = None
+                    try:
+                        wind_data = owm.get_wind_forecast(site_lat, site_lon, forecast.date)
+                        if wind_data:
+                            site_wind = wind_data.get("wind_speed_mph")
+                            wind_dir_deg = wind_data.get("wind_direction_deg")
+                            if wind_dir_deg is not None:
+                                wind_dir = owm.get_wind_direction_name(wind_dir_deg)
+                            # Use OWM best time if we don't have wave-based time
+                            if not best_time_range:
+                                best_time_range = wind_data.get("best_time_range")
+                    except Exception as e:
+                        logger.debug(f"OpenWeatherMap query failed for {site.site.name}: {e}")
 
-                        # Estimate conditions for this day
-                        reasons = []
-                        if wave_ht < 2:
-                            reasons.append(f"expected flat {wave_ht:.1f}ft waves")
-                        elif wave_ht < 4:
-                            reasons.append(f"expected small {wave_ht:.1f}ft waves")
-                        elif wave_ht < 6:
-                            reasons.append(f"expected moderate {wave_ht:.1f}ft waves")
+                    # Fall back to NWS island-wide wind if OWM fails
+                    if site_wind is None and forecast.wind_speed_max_mph:
+                        site_wind = (forecast.wind_speed_min_mph + forecast.wind_speed_max_mph) / 2
+                        wind_dir = forecast.wind_direction
 
-                        # Use forecast wind
-                        if forecast.wind_speed_max_mph:
-                            avg_wind = (forecast.wind_speed_min_mph + forecast.wind_speed_max_mph) / 2
-                            if avg_wind < 10:
-                                reasons.append("light winds forecast")
+                    # Default best time if we couldn't calculate it
+                    if not best_time_range:
+                        best_time_range = "06:00-10:00"
 
-                        beach = BeachForecast(
-                            name=site.site.name,
-                            coast=self.COAST_DISPLAY_NAMES.get(site.site.coast, site.site.coast),
-                            wave_height_ft=wave_ht,
-                            wind_speed_mph=(forecast.wind_speed_min_mph + forecast.wind_speed_max_mph) / 2 if forecast.wind_speed_max_mph else None,
-                            wind_type="forecast",
-                            wind_direction=forecast.wind_direction,
-                            tide_phase=None,  # Tide changes throughout day
-                            outlook=coast_outlooks.get(coast_name, "Fair"),
-                            score=0,
-                            best_time="5-9 AM (early morning best)",
-                            why_recommended=" + ".join(reasons) if reasons else f"Best option on {coast_name}",
-                        )
-                        recommended.append(beach)
+                    # Build detailed "Why" explanation
+                    reasons = []
+
+                    # WPI assessment (using forecast wave period)
+                    if wave_ht and wave_period:
+                        wpi = wave_ht ** 2 * wave_period
+                        if wpi < 5:
+                            reasons.append(f"Excellent WPI ({wpi:.0f})")
+                        elif wpi < 20:
+                            reasons.append(f"Good WPI ({wpi:.0f})")
+                        elif wpi < 50:
+                            reasons.append(f"Moderate WPI ({wpi:.0f})")
+                        else:
+                            reasons.append(f"High WPI ({wpi:.0f})")
+
+                    # Wave conditions
+                    if wave_ht < 1:
+                        reasons.append("glass-flat expected")
+                    elif wave_ht < 2:
+                        reasons.append("very calm forecast")
+                    elif wave_ht < 3:
+                        reasons.append("small waves forecast")
+                    elif wave_ht < 4:
+                        reasons.append("moderate chop expected")
+                    else:
+                        reasons.append(f"{wave_ht:.1f}ft waves forecast")
+
+                    # Wind assessment
+                    if site_wind:
+                        if site_wind < 5:
+                            reasons.append("calm winds expected")
+                        elif site_wind < 10:
+                            reasons.append("light winds forecast")
+                        elif site_wind < 15:
+                            reasons.append(f"moderate wind (~{site_wind:.0f}mph)")
+                        else:
+                            reasons.append(f"windy (~{site_wind:.0f}mph) - may affect viz")
+
+                    # Determine grade based on wave height and wind
+                    if wave_ht < 2 and (site_wind is None or site_wind < 10):
+                        outlook = "A"
+                    elif wave_ht < 3 and (site_wind is None or site_wind < 15):
+                        outlook = "B"
+                    elif wave_ht < 4:
+                        outlook = "C"
+                    elif wave_ht < 6:
+                        outlook = "D"
+                    else:
+                        outlook = "F"
+
+                    beach = BeachForecast(
+                        name=site.site.name,
+                        coast=self.COAST_DISPLAY_NAMES.get(site.site.coast, site.site.coast),
+                        wave_height_ft=wave_ht,
+                        wave_period_s=wave_period,
+                        wind_speed_mph=site_wind,
+                        wind_type="forecast",
+                        wind_direction=wind_dir,
+                        tide_phase=None,
+                        outlook=outlook,
+                        score=site.score.total_score if site.score else 0,
+                        best_time=best_time_range,
+                        why_recommended=" | ".join(reasons) if reasons else None,
+                    )
+                    recommended.append(beach)
+
+                # Sort by wave height (lower is better for diving)
+                recommended.sort(key=lambda b: (b.wave_height_ft or 99, -b.score))
 
             forecast.recommended_beaches = recommended
             forecasts.append(forecast)
