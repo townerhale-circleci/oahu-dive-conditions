@@ -48,8 +48,12 @@ jobs:
           digest = generate_daily_digest()
           html = format_email_html(digest)
 
+          # Create output directory for GitHub Pages
+          import os
+          os.makedirs('_site', exist_ok=True)
+
           # Save HTML report
-          with open('index.html', 'w') as f:
+          with open('_site/index.html', 'w') as f:
               f.write(html)
 
           # Save summary for SMS
@@ -78,7 +82,7 @@ jobs:
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./
+          publish_dir: ./_site
           publish_branch: gh-pages
           keep_files: false
 
@@ -118,5 +122,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dive-report-${{ github.run_number }}
-          path: index.html
+          path: _site/index.html
           retention-days: 7
