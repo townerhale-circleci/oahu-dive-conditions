@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                   margin: 0; padding: 0; background: #f5f5f5; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; background: white; }
+            h1 { color: #0066cc; margin-bottom: 5px; }
+            h2 { color: #333; border-bottom: 2px solid #0066cc; padding-bottom: 5px; margin-top: 25px; }
+            .date { color: #666; margin-top: 0; }
+            .alert-banner { background: #ff6b6b; color: white; padding: 15px;
+                           border-radius: 5px; margin: 15px 0; font-weight: bold; }
+            .alert-banner.advisory { background: #ffa94d; }
+            .summary { background: #e8f4f8; padding: 15px; border-radius: 5px; margin: 15px 0; }
+            .no-dive { color: #c92a2a; font-weight: bold; font-size: 1.2em; }
+            .diveable-count { color: #2b8a3e; font-weight: bold; font-size: 1.2em; }
+            .warning-note { color: #d9480f; font-size: 0.95em; font-style: italic; }
+            table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+            th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+            th { background: #f8f9fa; }
+            .grade-A { color: #2b8a3e; font-weight: bold; }
+            .grade-B { color: #5c940d; font-weight: bold; }
+            .grade-C { color: #e67700; font-weight: bold; }
+            .grade-D { color: #d9480f; font-weight: bold; }
+            .grade-F { color: #c92a2a; font-weight: bold; }
+            .unsafe { color: #c92a2a; }
+            .footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd;
+                     color: #666; font-size: 0.9em; }
+            .methodology { background: #f8f9fa; padding: 15px; border-radius: 5px;
+                          margin: 10px 0; font-size: 0.9em; }
+            .methodology h3 { margin-top: 0; color: #495057; font-size: 1em; }
+            .methodology code { background: #e9ecef; padding: 2px 6px; border-radius: 3px;
+                               font-family: 'SFMono-Regular', monospace; }
+            .formula { background: #e3f2fd; padding: 10px; border-radius: 5px;
+                      margin: 10px 0; font-family: monospace; text-align: center; }
+            .scoring-table { font-size: 0.85em; }
+            .scoring-table th { background: #e9ecef; }
+            .api-status { margin: 10px 0; }
+            .api-status-item { display: flex; justify-content: space-between; align-items: center;
+                              padding: 8px 12px; border-bottom: 1px solid #eee; }
+            .api-success { color: #2b8a3e; }
+            .api-partial { color: #e67700; }
+            .api-fail { color: #c92a2a; }
+            .status-bar { width: 100px; height: 8px; background: #eee; border-radius: 4px; overflow: hidden; }
+            .status-bar-fill { height: 100%; transition: width 0.3s; }
+            .status-bar-fill.success { background: #2b8a3e; }
+            .status-bar-fill.partial { background: #e67700; }
+            .status-bar-fill.fail { background: #c92a2a; }
+            .forecast-grid { display: flex; flex-direction: column; gap: 20px; margin: 15px 0; }
+            .forecast-day { background: #f8f9fa; border-radius: 8px; padding: 15px;
+                           border-left: 4px solid #0066cc; width: 100%; }
+            .forecast-day.outlook-good { border-left-color: #2b8a3e; }
+            .forecast-day.outlook-fair { border-left-color: #5c940d; }
+            .forecast-day.outlook-poor { border-left-color: #e67700; }
+            .forecast-day.outlook-unsafe { border-left-color: #c92a2a; }
+            .forecast-day h3 { margin: 0 0 10px 0; font-size: 1.1em; color: #333; }
+            .forecast-day .date { color: #666; font-size: 0.85em; margin-bottom: 10px; }
+            .forecast-outlook { font-weight: bold; font-size: 1.2em; margin: 10px 0; }
+            .forecast-outlook.good { color: #2b8a3e; }
+            .forecast-outlook.fair { color: #5c940d; }
+            .forecast-outlook.poor { color: #e67700; }
+            .forecast-outlook.unsafe { color: #c92a2a; }
+            .forecast-detail { font-size: 0.9em; color: #555; margin: 5px 0; }
+            .forecast-detail strong { color: #333; }
+            .forecast-warning { background: #ff6b6b; color: white; padding: 5px 10px;
+                               border-radius: 3px; font-size: 0.85em; font-weight: bold; margin: 5px 0; }
+            .forecast-advisory { background: #ffa94d; color: white; padding: 5px 10px;
+                                border-radius: 3px; font-size: 0.85em; font-weight: bold; margin: 5px 0; }
+            .forecast-beaches { margin-top: 10px; padding-top: 10px; border-top: 1px solid #dee2e6; }
+            .beach-card { background: white; border: 1px solid #dee2e6; border-radius: 6px;
+                         padding: 10px; margin: 8px 0; }
+            .beach-name { font-weight: bold; color: #0066cc; }
+            .beach-location { font-size: 0.8em; color: #868e96; }
+            .beach-conditions { font-size: 0.85em; margin: 5px 0; color: #495057; }
+            .beach-reason { font-size: 0.85em; color: #2b8a3e; margin-top: 5px; }
+        
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Oahu Dive Conditions</h1>
+<p class="date">Wednesday, February 04, 2026 at 09:28 PM</p>
+<div class="alert-banner">High Surf Warning issued February 4 at 3:11AM HST until February 4 at 6:00PM HST by NWS Honolulu HI</div>
+<div class="alert-banner advisory">High Surf Advisory issued February 4 at 3:11AM HST until February 4 at 6:00PM HST by NWS Honolulu HI</div>
+<div class="summary">
+<p class="diveable-count">13 of 28 sites diveable</p>
+<p>Best conditions: <strong>South Shore</strong></p>
+<p class="warning-note">⚠️ High Surf Warning active for some areas - check local conditions</p>
+</div>
+<h2>Top Sites</h2>
+<table>
+<tr><th>Rank</th><th>Site</th><th>Grade</th><th>Score</th><th>Waves</th><th>WPI</th><th>Status</th></tr>
+<tr title="High Surf Warning in effect for some areas; High Surf Advisory in effect - use caution">
+<td>1</td>
+<td>Heeia Kea Pier</td>
+<td class="grade-A">A</td>
+<td>92</td>
+<td>1.0ft</td>
+<td>5.0</td>
+<td>Diveable</td>
+</tr>
+<tr title="High Surf Warning in effect for some areas; High Surf Advisory in effect - use caution">
+<td>2</td>
+<td>Coconut Island (Mokuoloe)</td>
+<td class="grade-A">A</td>
+<td>90</td>
+<td>0.6ft</td>
+<td>1.4</td>
+<td>Diveable</td>
+</tr>
+<tr title="High Surf Warning in effect for some areas; High Surf Advisory in effect - use caution">
+<td>3</td>
+<td>Kaneohe Bay (General)</td>
+<td class="grade-B">B</td>
+<td>78</td>
+<td>1.5ft</td>
+<td>9.8</td>
+<td>Diveable</td>
+</tr>
+<tr title="High Surf Warning in effect for some areas; High Surf Advisory in effect - use caution; Elevated wave power index (38.8) - challenging conditions">
+<td>4</td>
+<td>Magic Island</td>
+<td class="grade-C">C</td>
+<td>62</td>
+<td>2.0ft</td>
+<td>38.8</td>
+<td>Diveable</td>
+</tr>
+<tr title="High Surf Warning in effect for some areas; High Surf Advisory in effect - use caution; Elevated wave power index (38.8) - challenging conditions">
+<td>5</td>
+<td>Waikiki Reef</td>
+<td class="grade-C">C</td>
+<td>58</td>
+<td>2.0ft</td>
+<td>38.8</td>
+<td>Diveable</td>
+</tr>
+</table>
+<h2>By Coast</h2>
+<table>
+<tr><th>Coast</th><th>Diveable</th><th>Avg Waves</th></tr>
+<tr>
+<td>South Shore</td>
+<td>10/10</td>
+<td>2.0ft</td>
+</tr>
+<tr>
+<td>Windward</td>
+<td>3/11</td>
+<td>5.3ft</td>
+</tr>
+<tr>
+<td>West Side</td>
+<td>0/6</td>
+<td>9.5ft</td>
+</tr>
+<tr>
+<td>Southeast</td>
+<td>0/1</td>
+<td>6.9ft</td>
+</tr>
+</table>
+<h2>Tides</h2>
+<div class="tide-info">
+<p><strong>Next High Tide:</strong> 2026-02-05 04:37</p>
+<p><strong>Next Low Tide:</strong> 2026-02-04 22:05</p>
+</div>
+<h2>7-Day Forecast</h2>
+<div class="forecast-grid">
+<div class="forecast-day outlook-fair">
+<h3>Today</h3>
+<div class="date">Wednesday, Feb 04</div>
+<div class="forecast-warning">⚠️ HIGH SURF WARNING</div>
+<div class="forecast-outlook fair">Fair</div>
+<div class="forecast-detail">High Surf Advisory - use caution</div>
+<div class="forecast-detail"><strong>Waves:</strong> 2.0-14.4 ft</div>
+<div class="forecast-detail"><strong>Wind:</strong> 2-9 mph ESE</div>
+<div class="forecast-detail"><strong>Weather:</strong> Sunny</div>
+<div class="forecast-detail"><strong>Rain:</strong> 8% chance</div>
+<div class="forecast-detail"><strong>Best time:</strong> 5-9 AM</div>
+<div class="forecast-beaches">
+<strong>Diveable Sites (12) - Live Data:</strong>
+<table style="font-size: 0.85em; margin-top: 8px;">
+<tr><th>#</th><th>Site</th><th>Grade</th><th>Score</th><th>Waves</th><th>WPI</th><th>Wind</th><th>Best Time</th><th>Why</th></tr>
+<tr>
+<td>1</td>
+<td><strong>Heeia Kea Pier</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-A">A</td>
+<td>92</td>
+<td>1.0ft</td>
+<td>5.1</td>
+<td>5mph</td>
+<td>now - sunset (falling tide)</td>
+<td style="font-size:0.9em">Good WPI (5) + glass-flat conditions + light cross-shore (5mph) + falling tide</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Coconut Island (Mokuoloe)</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-A">A</td>
+<td>90</td>
+<td>0.6ft</td>
+<td>1.4</td>
+<td>7mph</td>
+<td>now - sunset (falling tide)</td>
+<td style="font-size:0.9em">Excellent WPI (1) + glass-flat conditions + light cross-shore (7mph) + falling tide</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Kaneohe Bay (General)</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-B">B</td>
+<td>78</td>
+<td>1.5ft</td>
+<td>9.8</td>
+<td>-</td>
+<td>06:00-10:00 (falling tide)</td>
+<td style="font-size:0.9em">Good WPI (10) + very calm surface + falling tide</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Magic Island</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-C">C</td>
+<td>62</td>
+<td>2.0ft</td>
+<td>38.8</td>
+<td>9mph</td>
+<td>06:00-10:00 (falling tide)</td>
+<td style="font-size:0.9em">Moderate WPI (39) + very calm surface + light cross-shore (9mph) + falling tide</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>Waikiki Reef</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-C">C</td>
+<td>58</td>
+<td>2.0ft</td>
+<td>38.8</td>
+<td>9mph</td>
+<td>now - sunset (falling tide)</td>
+<td style="font-size:0.9em">Moderate WPI (39) + very calm surface + light cross-shore (9mph) + falling tide</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>Turtle Canyons</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-C">C</td>
+<td>58</td>
+<td>2.0ft</td>
+<td>38.8</td>
+<td>9mph</td>
+<td>now - sunset (falling tide)</td>
+<td style="font-size:0.9em">Moderate WPI (39) + very calm surface + light cross-shore (9mph) + falling tide</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>Ala Moana Beach</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-C">C</td>
+<td>58</td>
+<td>2.0ft</td>
+<td>38.8</td>
+<td>9mph</td>
+<td>06:00-10:00 (high tide: 06:09)</td>
+<td style="font-size:0.9em">Moderate WPI (39) + very calm surface + light cross-shore (9mph) + falling tide</td>
+</tr>
+<tr>
+<td>8</td>
+<td><strong>Cockroach Bay / Kaupo</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-C">C</td>
+<td>57</td>
+<td>2.0ft</td>
+<td>38.8</td>
+<td>10mph</td>
+<td>06:00-10:00 (high tide: 06:09)</td>
+<td style="font-size:0.9em">Moderate WPI (39) + very calm surface + light cross-shore (10mph) + falling tide</td>
+</tr>
+<tr>
+<td>9</td>
+<td><strong>China Walls / Spitting Caves</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-D">D</td>
+<td>55</td>
+<td>2.0ft</td>
+<td>38.8</td>
+<td>12mph</td>
+<td>06:00-10:00 (high tide: 06:09)</td>
+<td style="font-size:0.9em">Moderate WPI (39) + very calm surface + falling tide</td>
+</tr>
+<tr>
+<td>10</td>
+<td><strong>Portlock Point</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-D">D</td>
+<td>55</td>
+<td>2.0ft</td>
+<td>38.8</td>
+<td>12mph</td>
+<td>06:00-10:00 (high tide: 06:09)</td>
+<td style="font-size:0.9em">Moderate WPI (39) + very calm surface + falling tide</td>
+</tr>
+<tr>
+<td>11</td>
+<td><strong>Kaimana Beach (Sans Souci)</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-D">D</td>
+<td>54</td>
+<td>2.0ft</td>
+<td>38.8</td>
+<td>9mph</td>
+<td>06:00-10:00 (high tide: 06:09)</td>
+<td style="font-size:0.9em">Moderate WPI (39) + very calm surface + light cross-shore (9mph) + falling tide</td>
+</tr>
+<tr>
+<td>12</td>
+<td><strong>Diamond Head / Lighthouse</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-D">D</td>
+<td>52</td>
+<td>2.0ft</td>
+<td>38.8</td>
+<td>12mph</td>
+<td>06:00-10:00 (high tide: 06:09)</td>
+<td style="font-size:0.9em">Moderate WPI (39) + very calm surface + falling tide</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="forecast-day outlook-fair">
+<h3>Tomorrow</h3>
+<div class="date">Thursday, Feb 05</div>
+<div class="forecast-warning">⚠️ HIGH SURF WARNING</div>
+<div class="forecast-outlook fair">Fair</div>
+<div class="forecast-detail">High Surf Advisory - use caution</div>
+<div class="forecast-detail"><strong>Waves:</strong> 1.7-7.6 ft</div>
+<div class="forecast-detail"><strong>Wind:</strong> 2-10 mph S</div>
+<div class="forecast-detail"><strong>Weather:</strong> Haze</div>
+<div class="forecast-detail"><strong>Rain:</strong> 20% chance</div>
+<div class="forecast-detail"><strong>Best time:</strong> 5-9 AM</div>
+<div class="forecast-beaches">
+<strong>Diveable Sites (10) - Forecast:</strong>
+<div style="font-size:0.8em; color:#666; margin:5px 0;">Note: Waves are coast-level forecast, wind is island-wide forecast</div>
+<table style="font-size: 0.85em; margin-top: 8px;">
+<tr><th>#</th><th>Site</th><th>Grade</th><th>Score</th><th>Waves</th><th>WPI</th><th>Wind</th><th>Best Time</th><th>Why</th></tr>
+<tr>
+<td>1</td>
+<td><strong>Coconut Island (Mokuoloe)</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-A">A</td>
+<td>90</td>
+<td>0.6ft</td>
+<td>1.3</td>
+<td>6mph S</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Excellent WPI (1) | glass-flat expected | light winds forecast</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Heeia Kea Pier</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-A">A</td>
+<td>92</td>
+<td>1.0ft</td>
+<td>4.5</td>
+<td>6mph S</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Excellent WPI (5) | glass-flat expected | light winds forecast</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Magic Island</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-A">A</td>
+<td>62</td>
+<td>1.3ft</td>
+<td>11.7</td>
+<td>6mph S</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Good WPI (12) | very calm forecast | light winds forecast</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Kaneohe Bay (General)</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-A">A</td>
+<td>78</td>
+<td>1.4ft</td>
+<td>9.0</td>
+<td>6mph S</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Good WPI (9) | very calm forecast | light winds forecast</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>Turtle Canyons</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-A">A</td>
+<td>58</td>
+<td>1.5ft</td>
+<td>16.1</td>
+<td>6mph S</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Good WPI (16) | very calm forecast | light winds forecast</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>Diamond Head / Lighthouse</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-A">A</td>
+<td>52</td>
+<td>1.6ft</td>
+<td>13.4</td>
+<td>6mph S</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Good WPI (13) | very calm forecast | light winds forecast</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>Flat Island (Popoia)</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-A">A</td>
+<td>-</td>
+<td>1.7ft</td>
+<td>15.4</td>
+<td>6mph S</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Good WPI (15) | very calm forecast | light winds forecast</td>
+</tr>
+<tr>
+<td>8</td>
+<td><strong>Kaimana Beach (Sans Souci)</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-A">A</td>
+<td>54</td>
+<td>1.8ft</td>
+<td>16.7</td>
+<td>6mph S</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Good WPI (17) | very calm forecast | light winds forecast</td>
+</tr>
+<tr>
+<td>9</td>
+<td><strong>Waimanalo Beach</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-C">C</td>
+<td>-</td>
+<td>3.3ft</td>
+<td>71.2</td>
+<td>6mph S</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">High WPI (71) | moderate chop expected | light winds forecast</td>
+</tr>
+<tr>
+<td>10</td>
+<td><strong>Pokai Bay</strong><br><small style="color:#868e96">West Side</small></td>
+<td class="grade-C">C</td>
+<td>-</td>
+<td>3.5ft</td>
+<td>82.2</td>
+<td>6mph S</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">High WPI (82) | moderate chop expected | light winds forecast</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="forecast-day outlook-good">
+<h3>Friday</h3>
+<div class="date">Friday, Feb 06</div>
+<div class="forecast-outlook good">Good</div>
+<div class="forecast-detail">Small waves expected</div>
+<div class="forecast-detail"><strong>Waves:</strong> 2.0-5.0 ft</div>
+<div class="forecast-detail"><strong>Wind:</strong> 6-10 mph SW</div>
+<div class="forecast-detail"><strong>Weather:</strong> Scattered Rain Showers</div>
+<div class="forecast-detail"><strong>Rain:</strong> 31% chance</div>
+<div class="forecast-detail"><strong>Best time:</strong> 5-9 AM</div>
+<div class="forecast-detail"><strong>Best area:</strong> South Shore</div>
+<div class="forecast-beaches">
+<strong>Diveable Sites (10) - Forecast:</strong>
+<div style="font-size:0.8em; color:#666; margin:5px 0;">Note: Waves are coast-level forecast, wind is island-wide forecast</div>
+<table style="font-size: 0.85em; margin-top: 8px;">
+<tr><th>#</th><th>Site</th><th>Grade</th><th>Score</th><th>Waves</th><th>WPI</th><th>Wind</th><th>Best Time</th><th>Why</th></tr>
+<tr>
+<td>1</td>
+<td><strong>Coconut Island (Mokuoloe)</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-A">A</td>
+<td>90</td>
+<td>0.5ft</td>
+<td>0.8</td>
+<td>8mph SW</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Excellent WPI (1) | glass-flat expected | light winds forecast</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Heeia Kea Pier</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-A">A</td>
+<td>92</td>
+<td>0.7ft</td>
+<td>2.4</td>
+<td>8mph SW</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Excellent WPI (2) | glass-flat expected | light winds forecast</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Kaneohe Bay (General)</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-A">A</td>
+<td>78</td>
+<td>1.1ft</td>
+<td>5.0</td>
+<td>8mph SW</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Excellent WPI (5) | very calm forecast | light winds forecast</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Flat Island (Popoia)</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-A">A</td>
+<td>-</td>
+<td>1.4ft</td>
+<td>10.2</td>
+<td>8mph SW</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Good WPI (10) | very calm forecast | light winds forecast</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>Diamond Head / Lighthouse</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-A">A</td>
+<td>52</td>
+<td>1.7ft</td>
+<td>14.3</td>
+<td>8mph SW</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Good WPI (14) | very calm forecast | light winds forecast</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>Magic Island</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-A">A</td>
+<td>62</td>
+<td>1.7ft</td>
+<td>15.3</td>
+<td>8mph SW</td>
+<td>08:00-12:00</td>
+<td style="font-size:0.9em">Good WPI (15) | very calm forecast | light winds forecast</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>Kaimana Beach (Sans Souci)</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-A">A</td>
+<td>54</td>
+<td>1.8ft</td>
+<td>18.3</td>
+<td>8mph SW</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Good WPI (18) | very calm forecast | light winds forecast</td>
+</tr>
+<tr>
+<td>8</td>
+<td><strong>Turtle Canyons</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-A">A</td>
+<td>58</td>
+<td>1.9ft</td>
+<td>16.7</td>
+<td>8mph SW</td>
+<td>09:00-13:00</td>
+<td style="font-size:0.9em">Good WPI (17) | very calm forecast | light winds forecast</td>
+</tr>
+<tr>
+<td>9</td>
+<td><strong>Waimanalo Beach</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-A">A</td>
+<td>-</td>
+<td>1.9ft</td>
+<td>29.8</td>
+<td>8mph SW</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Moderate WPI (30) | very calm forecast | light winds forecast</td>
+</tr>
+<tr>
+<td>10</td>
+<td><strong>Pokai Bay</strong><br><small style="color:#868e96">West Side</small></td>
+<td class="grade-B">B</td>
+<td>-</td>
+<td>2.9ft</td>
+<td>52.2</td>
+<td>8mph SW</td>
+<td>09:00-13:00</td>
+<td style="font-size:0.9em">High WPI (52) | small waves forecast | light winds forecast</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="forecast-day outlook-good">
+<h3>Saturday</h3>
+<div class="date">Saturday, Feb 07</div>
+<div class="forecast-outlook good">Good</div>
+<div class="forecast-detail">Small waves expected</div>
+<div class="forecast-detail"><strong>Waves:</strong> 2.2-6.8 ft</div>
+<div class="forecast-detail"><strong>Wind:</strong> 10-22 mph NE</div>
+<div class="forecast-detail"><strong>Weather:</strong> Chance Showers And Thunderstorms</div>
+<div class="forecast-detail"><strong>Rain:</strong> 63% chance</div>
+<div class="forecast-detail"><strong>Best time:</strong> 5-9 AM</div>
+<div class="forecast-detail"><strong>Best area:</strong> South Shore</div>
+<div class="forecast-beaches">
+<strong>Diveable Sites (10) - Forecast:</strong>
+<div style="font-size:0.8em; color:#666; margin:5px 0;">Note: Waves are coast-level forecast, wind is island-wide forecast</div>
+<table style="font-size: 0.85em; margin-top: 8px;">
+<tr><th>#</th><th>Site</th><th>Grade</th><th>Score</th><th>Waves</th><th>WPI</th><th>Wind</th><th>Best Time</th><th>Why</th></tr>
+<tr>
+<td>1</td>
+<td><strong>Coconut Island (Mokuoloe)</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-C">C</td>
+<td>90</td>
+<td>0.5ft</td>
+<td>1.0</td>
+<td>16mph NE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Excellent WPI (1) | glass-flat expected | windy (~16mph) - may affect viz</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Heeia Kea Pier</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-C">C</td>
+<td>92</td>
+<td>0.8ft</td>
+<td>3.0</td>
+<td>16mph NE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Excellent WPI (3) | glass-flat expected | windy (~16mph) - may affect viz</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Kaneohe Bay (General)</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-C">C</td>
+<td>78</td>
+<td>1.2ft</td>
+<td>6.1</td>
+<td>16mph NE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Good WPI (6) | very calm forecast | windy (~16mph) - may affect viz</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Flat Island (Popoia)</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-C">C</td>
+<td>-</td>
+<td>1.5ft</td>
+<td>11.6</td>
+<td>16mph NE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Good WPI (12) | very calm forecast | windy (~16mph) - may affect viz</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>Diamond Head / Lighthouse</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-C">C</td>
+<td>52</td>
+<td>1.8ft</td>
+<td>18.7</td>
+<td>16mph NE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Good WPI (19) | very calm forecast | windy (~16mph) - may affect viz</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>Kaimana Beach (Sans Souci)</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-C">C</td>
+<td>54</td>
+<td>2.0ft</td>
+<td>25.5</td>
+<td>16mph NE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Moderate WPI (25) | small waves forecast | windy (~16mph) - may affect viz</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>Magic Island</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-C">C</td>
+<td>62</td>
+<td>2.1ft</td>
+<td>26.3</td>
+<td>16mph NE</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Moderate WPI (26) | small waves forecast | windy (~16mph) - may affect viz</td>
+</tr>
+<tr>
+<td>8</td>
+<td><strong>Turtle Canyons</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-C">C</td>
+<td>58</td>
+<td>2.2ft</td>
+<td>30.5</td>
+<td>16mph NE</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Moderate WPI (31) | small waves forecast | windy (~16mph) - may affect viz</td>
+</tr>
+<tr>
+<td>9</td>
+<td><strong>Waimanalo Beach</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-C">C</td>
+<td>-</td>
+<td>2.3ft</td>
+<td>39.1</td>
+<td>16mph NE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Moderate WPI (39) | small waves forecast | windy (~16mph) - may affect viz</td>
+</tr>
+<tr>
+<td>10</td>
+<td><strong>Pokai Bay</strong><br><small style="color:#868e96">West Side</small></td>
+<td class="grade-C">C</td>
+<td>-</td>
+<td>3.5ft</td>
+<td>87.4</td>
+<td>16mph NE</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">High WPI (87) | moderate chop expected | windy (~16mph) - may affect viz</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="forecast-day outlook-good">
+<h3>Sunday</h3>
+<div class="date">Sunday, Feb 08</div>
+<div class="forecast-outlook good">Good</div>
+<div class="forecast-detail">Small waves expected</div>
+<div class="forecast-detail"><strong>Waves:</strong> 2.0-5.3 ft</div>
+<div class="forecast-detail"><strong>Wind:</strong> 21-26 mph ENE</div>
+<div class="forecast-detail"><strong>Weather:</strong> Occasional Showers And Thunderstorms</div>
+<div class="forecast-detail"><strong>Rain:</strong> 76% chance</div>
+<div class="forecast-detail"><strong>Best time:</strong> 5-9 AM</div>
+<div class="forecast-detail"><strong>Best area:</strong> South Shore</div>
+<div class="forecast-beaches">
+<strong>Diveable Sites (10) - Forecast:</strong>
+<div style="font-size:0.8em; color:#666; margin:5px 0;">Note: Waves are coast-level forecast, wind is island-wide forecast</div>
+<table style="font-size: 0.85em; margin-top: 8px;">
+<tr><th>#</th><th>Site</th><th>Grade</th><th>Score</th><th>Waves</th><th>WPI</th><th>Wind</th><th>Best Time</th><th>Why</th></tr>
+<tr>
+<td>1</td>
+<td><strong>Coconut Island (Mokuoloe)</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-C">C</td>
+<td>90</td>
+<td>0.7ft</td>
+<td>1.4</td>
+<td>24mph ENE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Excellent WPI (1) | glass-flat expected | windy (~24mph) - may affect viz</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Heeia Kea Pier</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-C">C</td>
+<td>92</td>
+<td>1.0ft</td>
+<td>4.8</td>
+<td>24mph ENE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Excellent WPI (5) | glass-flat expected | windy (~24mph) - may affect viz</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Kaneohe Bay (General)</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-C">C</td>
+<td>78</td>
+<td>1.5ft</td>
+<td>10.5</td>
+<td>24mph ENE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Good WPI (10) | very calm forecast | windy (~24mph) - may affect viz</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Flat Island (Popoia)</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-C">C</td>
+<td>-</td>
+<td>1.7ft</td>
+<td>14.8</td>
+<td>24mph ENE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Good WPI (15) | very calm forecast | windy (~24mph) - may affect viz</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>Diamond Head / Lighthouse</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-C">C</td>
+<td>52</td>
+<td>1.9ft</td>
+<td>21.2</td>
+<td>24mph ENE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Moderate WPI (21) | very calm forecast | windy (~24mph) - may affect viz</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>Turtle Canyons</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-C">C</td>
+<td>58</td>
+<td>1.9ft</td>
+<td>33.3</td>
+<td>24mph ENE</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Moderate WPI (33) | very calm forecast | windy (~24mph) - may affect viz</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>Kaimana Beach (Sans Souci)</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-C">C</td>
+<td>54</td>
+<td>2.0ft</td>
+<td>27.9</td>
+<td>24mph ENE</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Moderate WPI (28) | small waves forecast | windy (~24mph) - may affect viz</td>
+</tr>
+<tr>
+<td>8</td>
+<td><strong>Magic Island</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-C">C</td>
+<td>62</td>
+<td>2.1ft</td>
+<td>28.2</td>
+<td>24mph ENE</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Moderate WPI (28) | small waves forecast | windy (~24mph) - may affect viz</td>
+</tr>
+<tr>
+<td>9</td>
+<td><strong>Pokai Bay</strong><br><small style="color:#868e96">West Side</small></td>
+<td class="grade-C">C</td>
+<td>-</td>
+<td>2.8ft</td>
+<td>56.2</td>
+<td>24mph ENE</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">High WPI (56) | small waves forecast | windy (~24mph) - may affect viz</td>
+</tr>
+<tr>
+<td>10</td>
+<td><strong>Waimanalo Beach</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-C">C</td>
+<td>-</td>
+<td>3.9ft</td>
+<td>85.2</td>
+<td>24mph ENE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">High WPI (85) | moderate chop expected | windy (~24mph) - may affect viz</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="forecast-day outlook-good">
+<h3>Monday</h3>
+<div class="date">Monday, Feb 09</div>
+<div class="forecast-outlook good">Good</div>
+<div class="forecast-detail">Small waves expected</div>
+<div class="forecast-detail"><strong>Waves:</strong> 2.4-3.7 ft</div>
+<div class="forecast-detail"><strong>Wind:</strong> 20-26 mph ENE</div>
+<div class="forecast-detail"><strong>Weather:</strong> Scattered Rain Showers</div>
+<div class="forecast-detail"><strong>Rain:</strong> 69% chance</div>
+<div class="forecast-detail"><strong>Best time:</strong> 5-9 AM</div>
+<div class="forecast-detail"><strong>Best area:</strong> West Side</div>
+<div class="forecast-beaches">
+<strong>Diveable Sites (10) - Forecast:</strong>
+<div style="font-size:0.8em; color:#666; margin:5px 0;">Note: Waves are coast-level forecast, wind is island-wide forecast</div>
+<table style="font-size: 0.85em; margin-top: 8px;">
+<tr><th>#</th><th>Site</th><th>Grade</th><th>Score</th><th>Waves</th><th>WPI</th><th>Wind</th><th>Best Time</th><th>Why</th></tr>
+<tr>
+<td>1</td>
+<td><strong>Coconut Island (Mokuoloe)</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-C">C</td>
+<td>90</td>
+<td>0.7ft</td>
+<td>1.5</td>
+<td>23mph ENE</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Excellent WPI (1) | glass-flat expected | windy (~23mph) - may affect viz</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Heeia Kea Pier</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-C">C</td>
+<td>92</td>
+<td>1.1ft</td>
+<td>5.6</td>
+<td>23mph ENE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Good WPI (6) | very calm forecast | windy (~23mph) - may affect viz</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Kaneohe Bay (General)</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-C">C</td>
+<td>78</td>
+<td>1.6ft</td>
+<td>12.6</td>
+<td>23mph ENE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Good WPI (13) | very calm forecast | windy (~23mph) - may affect viz</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Pokai Bay</strong><br><small style="color:#868e96">West Side</small></td>
+<td class="grade-C">C</td>
+<td>-</td>
+<td>1.8ft</td>
+<td>28.5</td>
+<td>23mph ENE</td>
+<td>15:00-18:00</td>
+<td style="font-size:0.9em">Moderate WPI (28) | very calm forecast | windy (~23mph) - may affect viz</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>Flat Island (Popoia)</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-C">C</td>
+<td>-</td>
+<td>2.0ft</td>
+<td>19.9</td>
+<td>23mph ENE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Good WPI (20) | very calm forecast | windy (~23mph) - may affect viz</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>Diamond Head / Lighthouse</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-C">C</td>
+<td>52</td>
+<td>2.0ft</td>
+<td>23.0</td>
+<td>23mph ENE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Moderate WPI (23) | small waves forecast | windy (~23mph) - may affect viz</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>Kaimana Beach (Sans Souci)</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-C">C</td>
+<td>54</td>
+<td>2.1ft</td>
+<td>28.4</td>
+<td>23mph ENE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Moderate WPI (28) | small waves forecast | windy (~23mph) - may affect viz</td>
+</tr>
+<tr>
+<td>8</td>
+<td><strong>Magic Island</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-C">C</td>
+<td>62</td>
+<td>2.1ft</td>
+<td>28.2</td>
+<td>23mph ENE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Moderate WPI (28) | small waves forecast | windy (~23mph) - may affect viz</td>
+</tr>
+<tr>
+<td>9</td>
+<td><strong>Turtle Canyons</strong><br><small style="color:#868e96">South Shore</small></td>
+<td class="grade-C">C</td>
+<td>58</td>
+<td>2.1ft</td>
+<td>33.9</td>
+<td>23mph ENE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">Moderate WPI (34) | small waves forecast | windy (~23mph) - may affect viz</td>
+</tr>
+<tr>
+<td>10</td>
+<td><strong>Waimanalo Beach</strong><br><small style="color:#868e96">Windward</small></td>
+<td class="grade-D">D</td>
+<td>-</td>
+<td>4.2ft</td>
+<td>107.6</td>
+<td>23mph ENE</td>
+<td>05:00-09:00</td>
+<td style="font-size:0.9em">High WPI (108) | 4.2ft waves forecast | windy (~23mph) - may affect viz</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="forecast-day outlook-unknown">
+<h3>Tuesday</h3>
+<div class="date">Tuesday, Feb 10</div>
+<div class="forecast-outlook unknown">Unknown</div>
+<div class="forecast-detail"><strong>Wind:</strong> 20-20 mph E</div>
+<div class="forecast-detail"><strong>Weather:</strong> Scattered Rain Showers</div>
+<div class="forecast-detail"><strong>Rain:</strong> 44% chance</div>
+</div>
+</div>
+<h2>Methodology</h2>
+<div class="methodology">
+<h3>Wave Power Index (WPI)</h3>
+<p>The primary metric for assessing dive conditions:</p>
+<div class="formula">WPI = height² × period</div>
+<p>Where <code>height</code> is wave height in feet and <code>period</code> is wave period in seconds.</p>
+<p><strong>Interpretation:</strong> WPI &lt; 5 = Excellent | WPI 5-20 = Good | WPI 20-50 = Challenging | WPI &gt; 50 = Poor</p>
+<h3>Scoring Factors</h3>
+<table class="scoring-table">
+<tr><th>Factor</th><th>Weight</th><th>Description</th></tr>
+<tr><td>Wave Power</td><td>35%</td><td>Lower WPI scores higher</td></tr>
+<tr><td>Wind</td><td>25%</td><td>Calm/offshore winds preferred</td></tr>
+<tr><td>Visibility</td><td>20%</td><td>Based on rainfall, discharge, advisories</td></tr>
+<tr><td>Tide</td><td>10%</td><td>Site-specific tide preferences</td></tr>
+<tr><td>Time of Day</td><td>10%</td><td>Early AM (5-9am) favored</td></tr>
+</table>
+<h3>Safety Gates</h3>
+<p>These conditions automatically mark a site as <strong>Unsafe</strong>:</p>
+<ul>
+<li>Brown Water Advisory at site (water quality issue)</li>
+<li>Wave height exceeds site threshold (typically &gt;6ft)</li>
+</ul>
+<p><em>Note: High Surf Warning is shown as informational but does not override local conditions. A site with small waves may still be diveable even during a warning.</em></p>
+<h3>Grade Scale</h3>
+<p>
+<span class="grade-A">A (85+)</span> Excellent | 
+<span class="grade-B">B (70-84)</span> Good | 
+<span class="grade-C">C (55-69)</span> Fair | 
+<span class="grade-D">D (40-54)</span> Poor | 
+<span class="grade-F">F (&lt;40)</span> Unsafe
+</p>
+</div>
+<h2>Data Sources Status</h2>
+<div class="api-status">
+<div class="api-status-item">
+<span>NDBC Buoys</span>
+<div style="display: flex; align-items: center; gap: 10px;">
+<div class="status-bar"><div class="status-bar-fill success" style="width: 100.0%"></div></div>
+<span class="api-success">100%</span>
+</div>
+</div>
+<div class="api-status-item">
+<span>PacIOOS Wave Model</span>
+<div style="display: flex; align-items: center; gap: 10px;">
+<div class="status-bar"><div class="status-bar-fill success" style="width: 100.0%"></div></div>
+<span class="api-success">100%</span>
+</div>
+</div>
+<div class="api-status-item">
+<span>NWS Weather</span>
+<div style="display: flex; align-items: center; gap: 10px;">
+<div class="status-bar"><div class="status-bar-fill success" style="width: 96.42857142857143%"></div></div>
+<span class="api-success">96%</span>
+</div>
+</div>
+<div class="api-status-item">
+<span>NOAA Tides</span>
+<div style="display: flex; align-items: center; gap: 10px;">
+<div class="status-bar"><div class="status-bar-fill success" style="width: 100.0%"></div></div>
+<span class="api-success">100%</span>
+</div>
+</div>
+<div class="api-status-item">
+<span>USGS Streams</span>
+<div style="display: flex; align-items: center; gap: 10px;">
+<div class="status-bar"><div class="status-bar-fill success" style="width: 100.0%"></div></div>
+<span class="api-success">100%</span>
+</div>
+</div>
+<div class="api-status-item">
+<span>Water Quality</span>
+<div style="display: flex; align-items: center; gap: 10px;">
+<div class="status-bar"><div class="status-bar-fill partial" style="width: 0%"></div></div>
+<span class="api-partial">No data</span>
+</div>
+</div>
+</div>
+<div class="footer">
+<p>Data sources: NDBC buoys, NWS, NOAA CO-OPS, USGS, Hawaii DOH</p>
+</div>
+</div>
+</body>
+</html>

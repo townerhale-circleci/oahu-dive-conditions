@@ -1,0 +1,1 @@
+"""Weekly digest generator."""
