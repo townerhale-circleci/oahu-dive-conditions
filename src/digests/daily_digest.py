@@ -48,6 +48,26 @@ class CoastSummary:
 
 
 @dataclass
+class APIStatus:
+    """Status of a data source API."""
+    name: str
+    display_name: str
+    success_count: int = 0
+    failure_count: int = 0
+    last_error: Optional[str] = None
+
+    @property
+    def total_calls(self) -> int:
+        return self.success_count + self.failure_count
+
+    @property
+    def success_rate(self) -> float:
+        if self.total_calls == 0:
+            return 0.0
+        return (self.success_count / self.total_calls) * 100
+
+
+@dataclass
 class DailyDigest:
     """Complete daily dive conditions digest."""
     generated_at: datetime
@@ -72,6 +92,9 @@ class DailyDigest:
     # Conditions summary
     wave_range: tuple[float, float] = (0, 0)  # min, max across sites
     wind_range: tuple[float, float] = (0, 0)
+
+    # API status tracking
+    api_statuses: list[APIStatus] = field(default_factory=list)
 
     # Errors during generation
     errors: list[str] = field(default_factory=list)
@@ -170,6 +193,9 @@ class DigestGenerator:
                 )
                 if best and best.diveable_count > 0:
                     digest.best_coast = best.display_name
+
+            # Track API statuses
+            digest.api_statuses = self._collect_api_statuses(all_ranked)
 
         except Exception as e:
             logger.error(f"Error generating digest: {e}")
@@ -287,6 +313,60 @@ class DigestGenerator:
         # Sort by diveable count descending
         summaries.sort(key=lambda s: s.diveable_count, reverse=True)
         return summaries
+
+    def _collect_api_statuses(self, ranked_sites: list[RankedSite]) -> list[APIStatus]:
+        """Collect API success/failure statistics from ranked sites."""
+        api_stats = {
+            "buoy": APIStatus("buoy", "NDBC Buoys"),
+            "pacioos": APIStatus("pacioos", "PacIOOS Wave Model"),
+            "nws": APIStatus("nws", "NWS Weather"),
+            "tides": APIStatus("tides", "NOAA Tides"),
+            "usgs": APIStatus("usgs", "USGS Streams"),
+            "cwb": APIStatus("cwb", "Water Quality"),
+        }
+
+        for ranked in ranked_sites:
+            # Check wave data source
+            if ranked.conditions.wave_source == "buoy":
+                api_stats["buoy"].success_count += 1
+            elif ranked.conditions.wave_source == "pacioos":
+                api_stats["pacioos"].success_count += 1
+            else:
+                # No wave data - mark as failure for both
+                api_stats["buoy"].failure_count += 1
+                api_stats["pacioos"].failure_count += 1
+
+            # Parse errors to track other APIs
+            for error in ranked.conditions.errors:
+                error_lower = error.lower()
+                if "buoy" in error_lower:
+                    api_stats["buoy"].failure_count += 1
+                    api_stats["buoy"].last_error = error
+                elif "pacioos" in error_lower:
+                    api_stats["pacioos"].failure_count += 1
+                    api_stats["pacioos"].last_error = error
+                elif "nws" in error_lower:
+                    api_stats["nws"].failure_count += 1
+                    api_stats["nws"].last_error = error
+                elif "tide" in error_lower:
+                    api_stats["tides"].failure_count += 1
+                    api_stats["tides"].last_error = error
+                elif "usgs" in error_lower:
+                    api_stats["usgs"].failure_count += 1
+                    api_stats["usgs"].last_error = error
+                elif "cwb" in error_lower:
+                    api_stats["cwb"].failure_count += 1
+                    api_stats["cwb"].last_error = error
+
+            # Count successes for other APIs based on data presence
+            if ranked.conditions.wind_speed_mph is not None:
+                api_stats["nws"].success_count += 1
+            if ranked.conditions.tide_phase is not None:
+                api_stats["tides"].success_count += 1
+            if ranked.conditions.stream_discharge_cfs is not None:
+                api_stats["usgs"].success_count += 1
+
+        return list(api_stats.values())
 
 
 def generate_daily_digest(**kwargs) -> DailyDigest:

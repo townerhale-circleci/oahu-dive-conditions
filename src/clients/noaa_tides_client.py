@@ -292,11 +292,16 @@ class NOAATidesClient:
         next_high = next((t for t in next_tides if t["is_high"]), None)
         next_low = next((t for t in next_tides if not t["is_high"]), None)
 
-        # Get current water level
-        water_level_df = self.get_water_level(station_id, hours=2)
+        # Try to get current water level, but don't fail if unavailable
+        # Many NOAA stations only have predictions, not real-time observations
         current_level = None
-        if not water_level_df.empty:
-            current_level = water_level_df.iloc[-1]["water_level_ft"]
+        try:
+            water_level_df = self.get_water_level(station_id, hours=2)
+            if not water_level_df.empty:
+                current_level = water_level_df.iloc[-1]["water_level_ft"]
+        except NOAATidesError:
+            # Real-time water level not available for this station - that's OK
+            pass
 
         return {
             "phase": phase,

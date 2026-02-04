@@ -2,6 +2,8 @@
 
 Fetches wave height, period, and direction from the SWAN Oahu model.
 Data is ~500m resolution with 5-day hourly forecasts, updated daily ~1:30 PM HST.
+
+Model domain: lat 21.2-21.75, lon -158.35 to -157.6 (approx)
 """
 
 import hashlib
@@ -12,13 +14,15 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
-from erddapy import ERDDAP
+import requests
 
 
-ERDDAP_SERVER = "https://pae-paha.pacioos.hawaii.edu/erddap"
-DATASET_ID = "swan_oahu"
-VARIABLES = ["shgt", "mper", "mdir"]  # wave height, mean period, mean direction
+ERDDAP_BASE = "https://pae-paha.pacioos.hawaii.edu/erddap/griddap/swan_oahu"
 CACHE_TTL_SECONDS = 3600  # 1 hour
+
+# Model domain bounds (approximate)
+LAT_MIN, LAT_MAX = 21.2, 21.75
+LON_MIN, LON_MAX = -158.35, -157.6  # In -180 to 180 format
 
 
 class PacIOOSClient:
@@ -30,8 +34,8 @@ class PacIOOSClient:
         Args:
             cache_path: Path to SQLite cache file. Defaults to ~/.cache/oahu-dive/pacioos.db
         """
-        self.erddap = ERDDAP(server=ERDDAP_SERVER, protocol="griddap")
-        self.erddap.dataset_id = DATASET_ID
+        self.session = requests.Session()
+        self.session.headers["User-Agent"] = "OahuDiveConditions/1.0"
 
         if cache_path is None:
             cache_dir = Path.home() / ".cache" / "oahu-dive"
@@ -51,31 +55,21 @@ class PacIOOSClient:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_created_at
-                ON pacioos_cache(created_at)
-            """)
             conn.commit()
 
-    def _make_cache_key(
-        self,
-        lat: float,
-        lon: float,
-        start_time: datetime,
-        end_time: datetime,
-    ) -> str:
+    def _make_cache_key(self, lat: float, lon: float, hours: int) -> str:
         """Generate a cache key for the query parameters."""
-        key_data = f"{lat:.4f}:{lon:.4f}:{start_time.isoformat()}:{end_time.isoformat()}"
+        # Round to grid resolution to improve cache hits
+        lat_rounded = round(lat, 2)
+        lon_rounded = round(lon, 2)
+        key_data = f"{lat_rounded}:{lon_rounded}:{hours}"
         return hashlib.sha256(key_data.encode()).hexdigest()[:32]
 
-    def _get_cached(self, cache_key: str) -> Optional[pd.DataFrame]:
+    def _get_cached(self, cache_key: str) -> Optional[dict]:
         """Retrieve data from cache if valid."""
         with sqlite3.connect(self.cache_path) as conn:
             cursor = conn.execute(
-                """
-                SELECT data, created_at FROM pacioos_cache
-                WHERE cache_key = ?
-                """,
+                "SELECT data, created_at FROM pacioos_cache WHERE cache_key = ?",
                 (cache_key,),
             )
             row = cursor.fetchone()
@@ -87,103 +81,117 @@ class PacIOOSClient:
             created_at = datetime.fromisoformat(created_at_str)
 
             if datetime.utcnow() - created_at > timedelta(seconds=CACHE_TTL_SECONDS):
-                conn.execute(
-                    "DELETE FROM pacioos_cache WHERE cache_key = ?", (cache_key,)
-                )
+                conn.execute("DELETE FROM pacioos_cache WHERE cache_key = ?", (cache_key,))
                 conn.commit()
                 return None
 
-            return pd.read_json(data_json, orient="records")
+            return json.loads(data_json)
 
-    def _set_cached(self, cache_key: str, df: pd.DataFrame) -> None:
+    def _set_cached(self, cache_key: str, data: dict) -> None:
         """Store data in cache."""
-        data_json = df.to_json(orient="records", date_format="iso")
         with sqlite3.connect(self.cache_path) as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO pacioos_cache (cache_key, data, created_at)
                 VALUES (?, ?, ?)
                 """,
-                (cache_key, data_json, datetime.utcnow().isoformat()),
+                (cache_key, json.dumps(data), datetime.utcnow().isoformat()),
             )
             conn.commit()
 
-    def _cleanup_expired_cache(self) -> None:
-        """Remove expired cache entries."""
-        cutoff = datetime.utcnow() - timedelta(seconds=CACHE_TTL_SECONDS)
-        with sqlite3.connect(self.cache_path) as conn:
-            conn.execute(
-                "DELETE FROM pacioos_cache WHERE created_at < ?",
-                (cutoff.isoformat(),),
-            )
-            conn.commit()
+    def _lon_to_360(self, lon: float) -> float:
+        """Convert longitude from -180/180 to 0/360 format."""
+        if lon < 0:
+            return 360 + lon
+        return lon
+
+    def _is_in_domain(self, lat: float, lon: float) -> bool:
+        """Check if coordinates are within model domain."""
+        return (LAT_MIN <= lat <= LAT_MAX) and (LON_MIN <= lon <= LON_MAX)
 
     def get_wave_data(
         self,
         lat: float,
         lon: float,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
+        hours: int = 48,
         use_cache: bool = True,
     ) -> pd.DataFrame:
         """Fetch wave data for a specific location and time range.
 
         Args:
-            lat: Latitude of the location (e.g., 21.6512 for Shark's Cove)
-            lon: Longitude of the location (e.g., -158.0635 for Shark's Cove)
-            start_time: Start of time range. Defaults to now.
-            end_time: End of time range. Defaults to 48 hours from start.
+            lat: Latitude of the location (e.g., 21.27 for Waikiki)
+            lon: Longitude of the location in -180/180 format (e.g., -157.83)
+            hours: Number of hours of forecast data. Defaults to 48.
             use_cache: Whether to use cached data. Defaults to True.
 
         Returns:
-            DataFrame with columns: time, shgt (wave height m), mper (period s), mdir (direction deg)
+            DataFrame with columns: time, wave_height_m, period_s, direction_deg
         """
-        if start_time is None:
-            start_time = datetime.utcnow()
-        if end_time is None:
-            end_time = start_time + timedelta(hours=48)
+        # Check if in domain
+        if not self._is_in_domain(lat, lon):
+            return pd.DataFrame(columns=["time", "wave_height_m", "period_s", "direction_deg"])
 
-        cache_key = self._make_cache_key(lat, lon, start_time, end_time)
+        cache_key = self._make_cache_key(lat, lon, hours)
 
         if use_cache:
-            cached_df = self._get_cached(cache_key)
-            if cached_df is not None:
-                return cached_df
+            cached = self._get_cached(cache_key)
+            if cached is not None:
+                return pd.DataFrame(cached)
 
-        self.erddap.variables = ["time", "latitude", "longitude"] + VARIABLES
+        # Convert coordinates
+        lon_360 = self._lon_to_360(lon)
 
-        self.erddap.constraints = {
-            "time>=": start_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "time<=": end_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "latitude>=": lat - 0.01,
-            "latitude<=": lat + 0.01,
-            "longitude>=": lon - 0.01,
-            "longitude<=": lon + 0.01,
-        }
+        # Build time range
+        now = datetime.utcnow()
+        end = now + timedelta(hours=hours)
+        time_start = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        time_end = end.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # Build ERDDAP griddap URL
+        # Format: variable[(time_start):(time_end)][(depth)][(lat)][(lon)]
+        url = (
+            f"{ERDDAP_BASE}.csv?"
+            f"shgt[({time_start}):1:({time_end})][(0.0):1:(0.0)][({lat}):1:({lat})][({lon_360}):1:({lon_360})],"
+            f"mper[({time_start}):1:({time_end})][(0.0):1:(0.0)][({lat}):1:({lat})][({lon_360}):1:({lon_360})],"
+            f"mdir[({time_start}):1:({time_end})][(0.0):1:(0.0)][({lat}):1:({lat})][({lon_360}):1:({lon_360})]"
+        )
 
         try:
-            df = self.erddap.to_pandas()
-        except Exception as e:
+            response = self.session.get(url, timeout=30)
+            response.raise_for_status()
+        except requests.RequestException as e:
             raise PacIOOSError(f"Failed to fetch data from PacIOOS: {e}") from e
 
-        if df.empty:
-            return pd.DataFrame(columns=["time", "shgt", "mper", "mdir"])
+        # Parse CSV response
+        lines = response.text.strip().split("\n")
+        if len(lines) < 3:  # Header + units + at least one data row
+            return pd.DataFrame(columns=["time", "wave_height_m", "period_s", "direction_deg"])
 
-        # Clean column names (erddapy adds units in parentheses)
-        df.columns = [col.split(" ")[0] for col in df.columns]
+        # Skip header and units rows
+        records = []
+        for line in lines[2:]:
+            parts = line.split(",")
+            if len(parts) >= 6:
+                time_str = parts[0]
+                shgt = parts[4]
+                mper = parts[5] if len(parts) > 5 else None
+                mdir = parts[6] if len(parts) > 6 else None
 
-        # Find nearest grid point and filter to just that point
-        if "latitude" in df.columns and "longitude" in df.columns:
-            df["dist"] = ((df["latitude"] - lat) ** 2 + (df["longitude"] - lon) ** 2)
-            nearest_lat = df.loc[df["dist"].idxmin(), "latitude"]
-            nearest_lon = df.loc[df["dist"].idxmin(), "longitude"]
-            df = df[(df["latitude"] == nearest_lat) & (df["longitude"] == nearest_lon)]
-            df = df.drop(columns=["dist", "latitude", "longitude"])
+                # Skip NaN values
+                if shgt == "NaN" or not shgt:
+                    continue
 
-        df = df.sort_values("time").reset_index(drop=True)
+                records.append({
+                    "time": time_str,
+                    "wave_height_m": float(shgt) if shgt and shgt != "NaN" else None,
+                    "period_s": float(mper) if mper and mper != "NaN" else None,
+                    "direction_deg": float(mdir) if mdir and mdir != "NaN" else None,
+                })
+
+        df = pd.DataFrame(records)
 
         if use_cache and not df.empty:
-            self._set_cached(cache_key, df)
+            self._set_cached(cache_key, df.to_dict(orient="records"))
 
         return df
 
@@ -197,27 +205,36 @@ class PacIOOSClient:
 
         Args:
             lat: Latitude of the location
-            lon: Longitude of the location
+            lon: Longitude of the location (in -180/180 format)
             hours: Number of hours to forecast. Defaults to 48.
 
         Returns:
             DataFrame with wave forecast data
         """
-        start_time = datetime.utcnow()
-        end_time = start_time + timedelta(hours=hours)
-        return self.get_wave_data(lat, lon, start_time, end_time)
+        return self.get_wave_data(lat, lon, hours=hours)
 
     def get_current_conditions(self, lat: float, lon: float) -> dict:
         """Get the most recent wave conditions for a location.
 
         Args:
             lat: Latitude of the location
-            lon: Longitude of the location
+            lon: Longitude of the location (in -180/180 format)
 
         Returns:
-            Dict with keys: time, wave_height_m, wave_height_ft, period_s, direction_deg
+            Dict with keys: time, wave_height_m, wave_height_ft, period_s, direction_deg, in_domain
         """
-        df = self.get_forecast(lat, lon, hours=6)
+        # Check domain first
+        if not self._is_in_domain(lat, lon):
+            return {
+                "time": None,
+                "wave_height_m": None,
+                "wave_height_ft": None,
+                "period_s": None,
+                "direction_deg": None,
+                "in_domain": False,
+            }
+
+        df = self.get_wave_data(lat, lon, hours=6)
 
         if df.empty:
             return {
@@ -226,17 +243,19 @@ class PacIOOSClient:
                 "wave_height_ft": None,
                 "period_s": None,
                 "direction_deg": None,
+                "in_domain": True,
             }
 
         latest = df.iloc[0]
-        wave_height_m = latest.get("shgt")
+        wave_height_m = latest.get("wave_height_m")
 
         return {
             "time": latest.get("time"),
             "wave_height_m": wave_height_m,
             "wave_height_ft": wave_height_m * 3.28084 if wave_height_m else None,
-            "period_s": latest.get("mper"),
-            "direction_deg": latest.get("mdir"),
+            "period_s": latest.get("period_s"),
+            "direction_deg": latest.get("direction_deg"),
+            "in_domain": True,
         }
 
 

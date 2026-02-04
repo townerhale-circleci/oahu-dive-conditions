@@ -6,7 +6,7 @@ Supports SMS (short), email (full), and plain text formats.
 from datetime import datetime
 from typing import Optional
 
-from src.digests.daily_digest import DailyDigest, CoastSummary, AlertInfo
+from src.digests.daily_digest import DailyDigest, CoastSummary, AlertInfo, APIStatus
 from src.core.ranker import RankedSite
 
 
@@ -152,6 +152,15 @@ class DigestFormatter:
         if d.tide_info:
             html_parts.append('<h2>Tides</h2>')
             html_parts.append(self._format_tide_html(d.tide_info))
+
+        # Methodology section
+        html_parts.append('<h2>Methodology</h2>')
+        html_parts.append(self._format_methodology_html())
+
+        # API Status section
+        if d.api_statuses:
+            html_parts.append('<h2>Data Sources Status</h2>')
+            html_parts.append(self._format_api_status_html(d.api_statuses))
 
         # Footer
         html_parts.extend([
@@ -300,6 +309,26 @@ class DigestFormatter:
             .unsafe { color: #c92a2a; }
             .footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd;
                      color: #666; font-size: 0.9em; }
+            .methodology { background: #f8f9fa; padding: 15px; border-radius: 5px;
+                          margin: 10px 0; font-size: 0.9em; }
+            .methodology h3 { margin-top: 0; color: #495057; font-size: 1em; }
+            .methodology code { background: #e9ecef; padding: 2px 6px; border-radius: 3px;
+                               font-family: 'SFMono-Regular', monospace; }
+            .formula { background: #e3f2fd; padding: 10px; border-radius: 5px;
+                      margin: 10px 0; font-family: monospace; text-align: center; }
+            .scoring-table { font-size: 0.85em; }
+            .scoring-table th { background: #e9ecef; }
+            .api-status { margin: 10px 0; }
+            .api-status-item { display: flex; justify-content: space-between; align-items: center;
+                              padding: 8px 12px; border-bottom: 1px solid #eee; }
+            .api-success { color: #2b8a3e; }
+            .api-partial { color: #e67700; }
+            .api-fail { color: #c92a2a; }
+            .status-bar { width: 100px; height: 8px; background: #eee; border-radius: 4px; overflow: hidden; }
+            .status-bar-fill { height: 100%; transition: width 0.3s; }
+            .status-bar-fill.success { background: #2b8a3e; }
+            .status-bar-fill.partial { background: #e67700; }
+            .status-bar-fill.fail { background: #c92a2a; }
         """
 
     def _format_alerts_html(self, alerts: list[AlertInfo]) -> str:
@@ -313,21 +342,30 @@ class DigestFormatter:
         return "\n".join(html)
 
     def _format_top_sites_html(self, sites: list[RankedSite]) -> str:
-        """Format top sites as HTML table."""
+        """Format top sites as HTML table with scoring details."""
         rows = ["<table>"]
-        rows.append("<tr><th>Rank</th><th>Site</th><th>Grade</th><th>Waves</th><th>Status</th></tr>")
+        rows.append("<tr><th>Rank</th><th>Site</th><th>Grade</th><th>Score</th><th>Waves</th><th>WPI</th><th>Status</th></tr>")
 
         for i, site in enumerate(sites, 1):
             grade = site.grade
             grade_class = f"grade-{grade}"
             wave = f"{site.conditions.wave_height_ft:.1f}ft" if site.conditions.wave_height_ft else "N/A"
+            wpi = f"{site.score.wave_power_index:.1f}" if site.score.wave_power_index else "N/A"
+            total_score = f"{site.score.total_score:.0f}"
             status = "Diveable" if site.is_diveable else '<span class="unsafe">Unsafe</span>'
 
-            rows.append(f"<tr>")
+            # Add warning tooltip if present
+            warning_title = ""
+            if site.score.warnings:
+                warning_title = f' title="{"; ".join(site.score.warnings)}"'
+
+            rows.append(f"<tr{warning_title}>")
             rows.append(f"<td>{i}</td>")
             rows.append(f"<td>{site.site.name}</td>")
             rows.append(f'<td class="{grade_class}">{grade}</td>')
+            rows.append(f"<td>{total_score}</td>")
             rows.append(f"<td>{wave}</td>")
+            rows.append(f"<td>{wpi}</td>")
             rows.append(f"<td>{status}</td>")
             rows.append(f"</tr>")
 
@@ -360,6 +398,87 @@ class DigestFormatter:
         if tide_info.next_low_time:
             html.append(f"<p><strong>Next Low Tide:</strong> {tide_info.next_low_time}</p>")
         html.append("</div>")
+        return "\n".join(html)
+
+    def _format_methodology_html(self) -> str:
+        """Format scoring methodology as HTML."""
+        html = ['<div class="methodology">']
+
+        # Wave Power Index explanation
+        html.append('<h3>Wave Power Index (WPI)</h3>')
+        html.append('<p>The primary metric for assessing dive conditions:</p>')
+        html.append('<div class="formula">WPI = height² × period</div>')
+        html.append('<p>Where <code>height</code> is wave height in feet and <code>period</code> is wave period in seconds.</p>')
+        html.append('<p><strong>Interpretation:</strong> WPI &lt; 5 = Excellent | WPI 5-20 = Good | WPI 20-50 = Challenging | WPI &gt; 50 = Poor</p>')
+
+        # Scoring weights
+        html.append('<h3>Scoring Factors</h3>')
+        html.append('<table class="scoring-table">')
+        html.append('<tr><th>Factor</th><th>Weight</th><th>Description</th></tr>')
+        html.append('<tr><td>Wave Power</td><td>35%</td><td>Lower WPI scores higher</td></tr>')
+        html.append('<tr><td>Wind</td><td>25%</td><td>Calm/offshore winds preferred</td></tr>')
+        html.append('<tr><td>Visibility</td><td>20%</td><td>Based on rainfall, discharge, advisories</td></tr>')
+        html.append('<tr><td>Tide</td><td>10%</td><td>Site-specific tide preferences</td></tr>')
+        html.append('<tr><td>Time of Day</td><td>10%</td><td>Early AM (5-9am) favored</td></tr>')
+        html.append('</table>')
+
+        # Safety gates
+        html.append('<h3>Safety Gates</h3>')
+        html.append('<p>These conditions automatically mark a site as <strong>Unsafe</strong>:</p>')
+        html.append('<ul>')
+        html.append('<li>High Surf Warning active</li>')
+        html.append('<li>Brown Water Advisory at site</li>')
+        html.append('<li>Wave height exceeds site threshold (typically &gt;6ft)</li>')
+        html.append('</ul>')
+
+        # Grade scale
+        html.append('<h3>Grade Scale</h3>')
+        html.append('<p>')
+        html.append('<span class="grade-A">A (85+)</span> Excellent | ')
+        html.append('<span class="grade-B">B (70-84)</span> Good | ')
+        html.append('<span class="grade-C">C (55-69)</span> Fair | ')
+        html.append('<span class="grade-D">D (40-54)</span> Poor | ')
+        html.append('<span class="grade-F">F (&lt;40)</span> Unsafe')
+        html.append('</p>')
+
+        html.append('</div>')
+        return "\n".join(html)
+
+    def _format_api_status_html(self, api_statuses: list[APIStatus]) -> str:
+        """Format API status indicators as HTML."""
+        html = ['<div class="api-status">']
+
+        for api in api_statuses:
+            if api.total_calls == 0:
+                status_class = "api-partial"
+                status_text = "No data"
+                fill_width = 0
+                fill_class = "partial"
+            elif api.success_rate >= 90:
+                status_class = "api-success"
+                status_text = f"{api.success_rate:.0f}%"
+                fill_width = api.success_rate
+                fill_class = "success"
+            elif api.success_rate >= 50:
+                status_class = "api-partial"
+                status_text = f"{api.success_rate:.0f}%"
+                fill_width = api.success_rate
+                fill_class = "partial"
+            else:
+                status_class = "api-fail"
+                status_text = f"{api.success_rate:.0f}%"
+                fill_width = max(api.success_rate, 5)  # Show at least a sliver
+                fill_class = "fail"
+
+            html.append('<div class="api-status-item">')
+            html.append(f'<span>{api.display_name}</span>')
+            html.append('<div style="display: flex; align-items: center; gap: 10px;">')
+            html.append(f'<div class="status-bar"><div class="status-bar-fill {fill_class}" style="width: {fill_width}%"></div></div>')
+            html.append(f'<span class="{status_class}">{status_text}</span>')
+            html.append('</div>')
+            html.append('</div>')
+
+        html.append('</div>')
         return "\n".join(html)
 
 
