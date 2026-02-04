@@ -8,9 +8,18 @@ on:
   # Allow manual trigger from Actions tab
   workflow_dispatch:
 
+  # Also run on push to main to update GitHub Pages
+  push:
+    branches:
+      - main
+
 jobs:
-  send-digest:
+  generate-and-deploy:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pages: write
 
     steps:
       - name: Checkout repository
@@ -27,47 +36,126 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Generate and send digest
+      - name: Generate HTML report
         env:
-          # Twilio credentials (required for SMS)
-          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
-          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
-          TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
-
-          # SendGrid credentials (optional, for email)
-          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
-          SENDGRID_FROM_EMAIL: ${{ secrets.SENDGRID_FROM_EMAIL }}
-
-          # Recipients (comma-separated)
-          SMS_RECIPIENTS: ${{ secrets.SMS_RECIPIENTS }}
-          EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
+          OPENWEATHERMAP_API_KEY: ${{ secrets.OPENWEATHERMAP_API_KEY }}
         run: |
-          # Build command with available recipients
-          CMD="python scripts/run_daily.py"
+          python -c "
+          from src.digests.daily_digest import generate_daily_digest
+          from src.digests.formatter import format_email_html
+          import json
 
-          # Add SMS recipients if configured
-          if [ -n "$SMS_RECIPIENTS" ]; then
-            # Convert comma-separated to space-separated for CLI
-            SMS_ARGS=$(echo "$SMS_RECIPIENTS" | tr ',' ' ')
-            CMD="$CMD --sms $SMS_ARGS"
+          digest = generate_daily_digest()
+          html = format_email_html(digest)
+
+          # Save HTML report
+          with open('index.html', 'w') as f:
+              f.write(html)
+
+          # Save summary for SMS
+          summary = {
+              'diveable': digest.diveable_sites,
+              'total': digest.total_sites,
+              'best_coast': digest.best_coast or 'Unknown',
+              'top_sites': []
+          }
+
+          if digest.top_sites:
+              for site in digest.top_sites[:3]:
+                  summary['top_sites'].append({
+                      'name': site.site.name,
+                      'grade': site.grade,
+                      'wpi': round(site.score.wave_power_index, 1) if site.score.wave_power_index else None
+                  })
+
+          with open('summary.json', 'w') as f:
+              json.dump(summary, f)
+
+          print(f'Generated report: {digest.diveable_sites}/{digest.total_sites} sites diveable')
+          "
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./
+          publish_branch: gh-pages
+          keep_files: false
+          include_files: index.html
+
+      - name: Send SMS via Email Gateway
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          SMTP_SERVER: smtp.gmail.com
+          SMTP_PORT: 587
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMS_GATEWAY_EMAIL: ${{ secrets.SMS_GATEWAY_EMAIL }}
+        run: |
+          # Only send if SMS gateway is configured
+          if [ -z "$SMS_GATEWAY_EMAIL" ]; then
+            echo "SMS_GATEWAY_EMAIL not configured, skipping SMS"
+            exit 0
           fi
 
-          # Add email recipients if configured
-          if [ -n "$EMAIL_RECIPIENTS" ]; then
-            EMAIL_ARGS=$(echo "$EMAIL_RECIPIENTS" | tr ',' ' ')
-            CMD="$CMD --email $EMAIL_ARGS"
-          fi
+          python -c "
+          import smtplib
+          import json
+          import os
+          from email.mime.text import MIMEText
 
-          echo "Running: $CMD"
-          $CMD
+          # Load summary
+          with open('summary.json') as f:
+              summary = json.load(f)
 
-      - name: Save report artifact
-        run: |
-          python scripts/run_daily.py --format html --output dive_report.html
+          # Build SMS message (keep it short for SMS)
+          top_site = summary['top_sites'][0] if summary['top_sites'] else None
+          if top_site:
+              top_str = f\"Best: {top_site['name']} ({top_site['grade']})\"
+          else:
+              top_str = ''
 
-      - name: Upload report
+          # GitHub Pages URL
+          repo = os.environ.get('GITHUB_REPOSITORY', '')
+          owner = repo.split('/')[0] if repo else ''
+          repo_name = repo.split('/')[1] if '/' in repo else ''
+          pages_url = f'https://{owner}.github.io/{repo_name}/'
+
+          msg_body = f\"\"\"Dive Report: {summary['diveable']}/{summary['total']} diveable
+          {summary['best_coast']}
+          {top_str}
+          {pages_url}\"\"\"
+
+          # Send email
+          smtp_server = os.environ.get('SMTP_SERVER', 'smtp.gmail.com')
+          smtp_port = int(os.environ.get('SMTP_PORT', 587))
+          username = os.environ.get('SMTP_USERNAME', '')
+          password = os.environ.get('SMTP_PASSWORD', '')
+          to_email = os.environ.get('SMS_GATEWAY_EMAIL', '')
+
+          if not all([username, password, to_email]):
+              print('SMTP credentials not fully configured')
+              exit(0)
+
+          msg = MIMEText(msg_body)
+          msg['Subject'] = 'Dive'
+          msg['From'] = username
+          msg['To'] = to_email
+
+          try:
+              server = smtplib.SMTP(smtp_server, smtp_port)
+              server.starttls()
+              server.login(username, password)
+              server.sendmail(username, to_email, msg.as_string())
+              server.quit()
+              print(f'SMS sent to {to_email}')
+          except Exception as e:
+              print(f'Failed to send SMS: {e}')
+          "
+
+      - name: Upload report artifact
         uses: actions/upload-artifact@v4
         with:
           name: dive-report-${{ github.run_number }}
-          path: dive_report.html
+          path: index.html
           retention-days: 7
