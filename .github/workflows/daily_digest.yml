@@ -16,6 +16,7 @@ on:
 jobs:
   generate-and-deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # Fail job if it takes longer than 10 minutes
 
     permissions:
       contents: write
@@ -37,6 +38,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Generate HTML report
+        timeout-minutes: 5  # Fail if report generation takes longer than 5 minutes
         env:
           OPENWEATHERMAP_API_KEY: ${{ secrets.OPENWEATHERMAP_API_KEY }}
         run: |

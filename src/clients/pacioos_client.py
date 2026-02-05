@@ -19,10 +19,18 @@ import requests
 
 ERDDAP_BASE = "https://pae-paha.pacioos.hawaii.edu/erddap/griddap/swan_oahu"
 CACHE_TTL_SECONDS = 3600  # 1 hour
+REQUEST_TIMEOUT = 10  # Reduced from 30s to fail fast
+CIRCUIT_BREAKER_THRESHOLD = 3  # Open circuit after this many consecutive failures
 
 # Model domain bounds (approximate)
 LAT_MIN, LAT_MAX = 21.2, 21.75
 LON_MIN, LON_MAX = -158.35, -157.6  # In -180 to 180 format
+
+# Circuit breaker state (shared across instances)
+_circuit_breaker = {
+    "failures": 0,
+    "is_open": False,
+}
 
 
 class PacIOOSClient:
@@ -131,6 +139,10 @@ class PacIOOSClient:
         if not self._is_in_domain(lat, lon):
             return pd.DataFrame(columns=["time", "wave_height_m", "period_s", "direction_deg"])
 
+        # Circuit breaker: skip requests if service is down
+        if _circuit_breaker["is_open"]:
+            return pd.DataFrame(columns=["time", "wave_height_m", "period_s", "direction_deg"])
+
         cache_key = self._make_cache_key(lat, lon, hours)
 
         if use_cache:
@@ -157,9 +169,15 @@ class PacIOOSClient:
         )
 
         try:
-            response = self.session.get(url, timeout=30)
+            response = self.session.get(url, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
+            # Success: reset circuit breaker
+            _circuit_breaker["failures"] = 0
         except requests.RequestException as e:
+            # Failure: increment counter and maybe open circuit
+            _circuit_breaker["failures"] += 1
+            if _circuit_breaker["failures"] >= CIRCUIT_BREAKER_THRESHOLD:
+                _circuit_breaker["is_open"] = True
             raise PacIOOSError(f"Failed to fetch data from PacIOOS: {e}") from e
 
         # Parse CSV response
