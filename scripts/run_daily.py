@@ -117,9 +117,9 @@ def parse_args():
 
 def generate_digest(args) -> "DailyDigest":
     """Generate the daily digest."""
-    print("Generating dive conditions digest...")
-    print(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print()
+    print("Generating dive conditions digest...", file=sys.stderr)
+    print(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", file=sys.stderr)
+    print(file=sys.stderr)
 
     generator = DigestGenerator()
     digest = generator.generate(
@@ -223,10 +223,10 @@ def main():
 
     # Check for errors
     if digest.errors:
-        print("Warnings during generation:")
+        print("Warnings during generation:", file=sys.stderr)
         for err in digest.errors:
-            print(f"  - {err}")
-        print()
+            print(f"  - {err}", file=sys.stderr)
+        print(file=sys.stderr)
 
     # Format output
     output = format_output(digest, args.format)
@@ -235,7 +235,7 @@ def main():
     if args.output:
         output_path = Path(args.output)
         output_path.write_text(output)
-        print(f"Output written to: {output_path}")
+        print(f"Output written to: {output_path}", file=sys.stderr)
     else:
         print(output)
 
@@ -243,19 +243,19 @@ def main():
     if args.send or args.sms or args.email:
         send_notifications(digest, args)
 
-    # Summary
-    print()
-    print("=" * 50)
-    print("SUMMARY")
-    print("=" * 50)
-    print(f"  Total sites: {digest.total_sites}")
-    print(f"  Diveable: {digest.diveable_sites}")
-    print(f"  Wave range: {digest.wave_range[0]:.1f} - {digest.wave_range[1]:.1f} ft")
+    # Summary (always to stderr so it doesn't pollute piped output)
+    print(file=sys.stderr)
+    print("=" * 50, file=sys.stderr)
+    print("SUMMARY", file=sys.stderr)
+    print("=" * 50, file=sys.stderr)
+    print(f"  Total sites: {digest.total_sites}", file=sys.stderr)
+    print(f"  Diveable: {digest.diveable_sites}", file=sys.stderr)
+    print(f"  Wave range: {digest.wave_range[0]:.1f} - {digest.wave_range[1]:.1f} ft", file=sys.stderr)
     if digest.alerts:
-        print(f"  Active alerts: {len(digest.alerts)}")
+        print(f"  Active alerts: {len(digest.alerts)}", file=sys.stderr)
     if digest.best_coast:
-        print(f"  Best coast: {digest.best_coast}")
-    print("=" * 50)
+        print(f"  Best coast: {digest.best_coast}", file=sys.stderr)
+    print("=" * 50, file=sys.stderr)
 
     return 0 if digest.diveable_sites > 0 or not digest.errors else 1
 

@@ -229,7 +229,7 @@ class SiteRanker:
                 self._marine_alerts_cache = []
                 conditions.errors.append(f"Alerts error: {e}")
 
-        conditions.marine_alerts = self._marine_alerts_cache
+        conditions.marine_alerts = list(self._marine_alerts_cache)
 
         # Check for high surf warnings/advisories
         for alert in conditions.marine_alerts:

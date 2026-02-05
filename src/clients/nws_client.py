@@ -168,14 +168,23 @@ class NWSClient:
         records = []
         for period in periods:
             wind_speed_str = period.get("windSpeed", "0 mph")
-            wind_speed = int(wind_speed_str.split()[0]) if wind_speed_str else 0
+            try:
+                wind_speed = int(wind_speed_str.split()[0]) if wind_speed_str else 0
+            except (ValueError, IndexError):
+                wind_speed = 0
+
+            # Handle precipitation probability where API returns {"value": null}
+            precip_data = period.get("probabilityOfPrecipitation") or {}
+            precip_prob = precip_data.get("value")
+            if precip_prob is None:
+                precip_prob = 0
 
             records.append({
                 "time": period.get("startTime"),
                 "temperature_f": period.get("temperature"),
                 "wind_speed_mph": wind_speed,
                 "wind_direction": period.get("windDirection"),
-                "precipitation_probability": period.get("probabilityOfPrecipitation", {}).get("value", 0),
+                "precipitation_probability": precip_prob,
                 "short_forecast": period.get("shortForecast"),
             })
 

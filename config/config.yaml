@@ -2,27 +2,24 @@
 # Thresholds, schedules, and delivery preferences
 
 # Scoring thresholds
+# NOTE: These values must match the constants in src/core/scorer.py.
+# The scorer uses hardcoded constants for performance. Update both places.
 scoring:
   # Wave Power Index thresholds (height² × period)
   wpi_thresholds:
-    excellent: 20    # WPI <= 20 is excellent
-    good: 40         # WPI <= 40 is good
-    fair: 80         # WPI <= 80 is fair
-    poor: 150        # WPI <= 150 is poor (above is unsafe)
+    excellent: 5     # WPI <= 5 is excellent (score 100)
+    poor: 50         # WPI >= 50 is poor (score 0), linear interpolation between
 
   # Wind speed thresholds (mph)
   wind_thresholds:
-    calm: 5          # 0-5 mph is calm
-    light: 10        # 5-10 mph is light
-    moderate: 15     # 10-15 mph is moderate
-    strong: 20       # 15-20 mph is strong (above impacts diving)
+    calm: 5          # 0-5 mph is calm (score 100)
+    moderate: 15     # ~15 mph is moderate (score ~50)
+    strong: 25       # 25+ mph is strong (score 20, minimum)
 
   # Stream discharge thresholds for visibility impact (cfs)
   discharge_thresholds:
-    normal: 10       # < 10 cfs is normal/clear
-    elevated: 25     # 10-25 cfs is elevated
-    high: 50         # 25-50 cfs is high (reduced visibility)
-    flood: 100       # > 100 cfs is flood stage (poor visibility)
+    low: 5           # <= 5 cfs is clear (score 100)
+    high: 50         # >= 50 cfs is high runoff (score 0), linear interpolation between
 
   # Score weights (must sum to 1.0)
   weights:
@@ -49,8 +46,9 @@ safety:
   default_max_safe_wave_height: 6.0
 
   # Gates that trigger unsafe rating
+  # NOTE: High Surf Warning is intentionally NOT a safety gate - it's island-wide
+  # and may not apply to all coasts. Sites are evaluated by actual local wave height.
   gates:
-    - high_surf_warning
     - brown_water_advisory
     - wave_height_exceeded
 

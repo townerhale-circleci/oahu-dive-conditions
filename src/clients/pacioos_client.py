@@ -173,6 +173,7 @@ class PacIOOSClient:
             response.raise_for_status()
             # Success: reset circuit breaker
             _circuit_breaker["failures"] = 0
+            _circuit_breaker["is_open"] = False
         except requests.RequestException as e:
             # Failure: increment counter and maybe open circuit
             _circuit_breaker["failures"] += 1

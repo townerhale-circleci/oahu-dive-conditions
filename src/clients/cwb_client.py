@@ -256,7 +256,7 @@ class CWBClient:
         if not advisories:
             advisories = self._fetch_advisories_scrape()
 
-        if use_cache:
+        if use_cache and advisories:
             self._set_cached(cache_key, advisories)
 
         return advisories
@@ -301,11 +301,15 @@ class CWBClient:
             reason = (advisory.get("reason") or "").lower()
 
             # Check for direct match or nearby location
-            if site_lower in beach or beach in site_lower:
+            # Require minimum 4 chars to avoid false positives (e.g. "kai" matching "waikiki")
+            if len(site_lower) >= 4 and len(beach) >= 4:
+                if site_lower == beach or site_lower in beach or beach in site_lower:
+                    return advisory
+            elif site_lower == beach:
                 return advisory
 
-            # Check if site is in the reason/description
-            if site_lower in reason:
+            # Check if full site name appears in the reason/description
+            if len(site_lower) >= 4 and site_lower in reason:
                 return advisory
 
         return None

@@ -13,9 +13,10 @@ Scoring Factors (weights):
 - Time of Day: 10% - Early AM favored
 
 Safety Gates (binary rejection):
-- High surf warning active
 - Brown water advisory active
 - Wave height exceeds site threshold (typically >6ft)
+- Wave height exceeds absolute maximum (8ft)
+Note: High Surf Warning is NOT a safety gate - it's island-wide and informational only.
 """
 
 from dataclasses import dataclass
@@ -135,6 +136,7 @@ class DiveScorer:
 
     # Safety gate thresholds
     MAX_WAVE_HEIGHT_FT = 6.0  # Default, can be site-specific
+    ABSOLUTE_MAX_WAVE_HEIGHT_FT = 8.0  # Hard ceiling regardless of site config
 
     def __init__(self):
         """Initialize the scorer."""
@@ -185,13 +187,22 @@ class DiveScorer:
             ))
 
         # Gate 2: Wave height exceeds site threshold
-        max_height = inputs.site_max_safe_height_ft or self.MAX_WAVE_HEIGHT_FT
+        max_height = inputs.site_max_safe_height_ft if inputs.site_max_safe_height_ft is not None else self.MAX_WAVE_HEIGHT_FT
         if inputs.wave_height_ft is not None and inputs.wave_height_ft > max_height:
             failed_gates.append(SafetyGate(
                 passed=False,
                 reason=f"Wave height ({inputs.wave_height_ft:.1f}ft) exceeds safe threshold ({max_height}ft)",
                 gate_name="wave_height_exceeded",
             ))
+
+        # Gate 3: Absolute wave height ceiling (regardless of site config)
+        if inputs.wave_height_ft is not None and inputs.wave_height_ft > self.ABSOLUTE_MAX_WAVE_HEIGHT_FT:
+            if not any(g.gate_name == "wave_height_exceeded" for g in failed_gates):
+                failed_gates.append(SafetyGate(
+                    passed=False,
+                    reason=f"Wave height ({inputs.wave_height_ft:.1f}ft) exceeds absolute maximum ({self.ABSOLUTE_MAX_WAVE_HEIGHT_FT}ft)",
+                    gate_name="wave_height_exceeded",
+                ))
 
         all_passed = len(failed_gates) == 0
         return all_passed, failed_gates
@@ -209,7 +220,7 @@ class DiveScorer:
             Score 0-100
         """
         if wpi is None:
-            return 50.0  # Neutral score when data unavailable
+            return 40.0  # Conservative score when data unavailable
 
         if wpi <= self.WPI_EXCELLENT:
             return 100.0
@@ -560,7 +571,7 @@ class DiveScorer:
             time_score=round(time_score, 1),
             safety_gates_passed=True,
             failed_gates=[],
-            wave_power_index=round(wpi, 2) if wpi else None,
+            wave_power_index=round(wpi, 2) if wpi is not None else None,
             wind_type=wind_type,
             summary=summary,
             warnings=warnings,

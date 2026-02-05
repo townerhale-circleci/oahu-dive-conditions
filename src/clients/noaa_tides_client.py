@@ -7,9 +7,10 @@ Stations: 1612340 (Honolulu), 1612480 (Kaneohe), 1612366 (Waikiki)
 import hashlib
 import json
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal, Optional
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -167,9 +168,14 @@ class NOAATidesClient:
 
         records = []
         for pred in predictions:
+            raw_level = pred.get("v", 0)
+            try:
+                water_level = float(raw_level) if raw_level not in (None, "") else None
+            except (ValueError, TypeError):
+                water_level = None
             record = {
                 "time": pred.get("t"),
-                "water_level_ft": float(pred.get("v", 0)),
+                "water_level_ft": water_level,
             }
             if interval == "hilo":
                 record["type"] = pred.get("type")  # H or L
@@ -251,8 +257,9 @@ class NOAATidesClient:
             return []
 
         # Parse times and filter to future
+        # Tide predictions are in Hawaii local time (lst_ldt), so compare with Hawaii time
         df["time_parsed"] = pd.to_datetime(df["time"])
-        now = datetime.now()
+        now = datetime.now(ZoneInfo("Pacific/Honolulu")).replace(tzinfo=None)
         df = df[df["time_parsed"] > now]
 
         tides = []

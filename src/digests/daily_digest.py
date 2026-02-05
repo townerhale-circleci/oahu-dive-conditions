@@ -534,9 +534,10 @@ class DigestGenerator:
             List of ForecastDay objects
         """
         forecasts = []
-        nws = NWSClient()
-        pacioos = PacIOOSClient()
-        buoy = BuoyClient()
+        # Reuse clients from the ranker to share cache and circuit breaker state
+        nws = self.ranker.nws
+        pacioos = self.ranker.pacioos
+        buoy = self.ranker.buoy
         alerts = alerts or []
 
         # Check for active warnings
