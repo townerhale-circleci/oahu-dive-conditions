@@ -669,6 +669,27 @@ class DigestGenerator:
                         else:
                             coast_outlooks[location] = "Unsafe"
 
+            # For days beyond PacIOOS range (~5 days), use the last available day's data
+            if not coast_outlooks and buoy_forecasts:
+                for location, wave_df in buoy_forecasts.items():
+                    last_date = wave_df["date"].max()
+                    last_day = wave_df[wave_df["date"] == last_date]
+                    if not last_day.empty:
+                        heights = last_day["wave_height_m"].dropna() * 3.28084
+                        if not heights.empty:
+                            avg_height = heights.mean()
+                            wave_heights.extend(heights.tolist())
+                            if avg_height < 3:
+                                coast_outlooks[location] = "Good"
+                            elif avg_height < 5:
+                                coast_outlooks[location] = "Fair"
+                            elif avg_height < 8:
+                                coast_outlooks[location] = "Poor"
+                            else:
+                                coast_outlooks[location] = "Unsafe"
+                if coast_outlooks:
+                    forecast.outlook_reason = (forecast.outlook_reason or "") + " (extended forecast)"
+
             if wave_heights:
                 forecast.wave_height_min_ft = min(wave_heights)
                 forecast.wave_height_max_ft = max(wave_heights)
@@ -837,6 +858,23 @@ class DigestGenerator:
                 # This gives us per-site forecasts instead of coast/island-level
                 owm = OpenWeatherMapClient()
 
+                # Pre-compute coast-level average wave heights for this day as fallback
+                coast_wave_averages = {}
+                for coast_name, wave_df in buoy_forecasts.items():
+                    day_waves = wave_df[wave_df["date"] == forecast_date]
+                    # If no data for this date, use the last available day (extended forecast)
+                    if day_waves.empty:
+                        last_date = wave_df["date"].max()
+                        day_waves = wave_df[wave_df["date"] == last_date]
+                    if not day_waves.empty:
+                        heights = day_waves["wave_height_m"].dropna() * 3.28084
+                        periods = day_waves["period_s"].dropna()
+                        if not heights.empty:
+                            coast_wave_averages[coast_name] = {
+                                "wave_ht": heights.mean(),
+                                "wave_period": periods.mean() if not periods.empty else None,
+                            }
+
                 for site in ranked_sites:
                     # Skip Hanauma Bay
                     if "hanauma" in site.site.name.lower():
@@ -884,7 +922,15 @@ class DigestGenerator:
                     except Exception as e:
                         logger.debug(f"PacIOOS query failed for {site.site.name}: {e}")
 
-                    # Skip if no wave data or waves too high
+                    # Fall back to coast-level wave data if per-site data unavailable
+                    if wave_ht is None:
+                        site_coast_display = self.COAST_DISPLAY_NAMES.get(site.site.coast, site.site.coast)
+                        coast_data = coast_wave_averages.get(site_coast_display)
+                        if coast_data:
+                            wave_ht = coast_data["wave_ht"]
+                            wave_period = coast_data.get("wave_period")
+
+                    # Skip if still no wave data or waves too high
                     if wave_ht is None or wave_ht > 6:
                         continue
 
