@@ -52,6 +52,10 @@ jobs:
           import os
           os.makedirs('_site', exist_ok=True)
 
+          # Disable Jekyll processing
+          with open('_site/.nojekyll', 'w') as f:
+              f.write('')
+
           # Save HTML report
           with open('_site/index.html', 'w') as f:
               f.write(html)
