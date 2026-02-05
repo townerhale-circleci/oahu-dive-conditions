@@ -12,6 +12,7 @@ from typing import Optional
 import pandas as pd
 
 from src.core.ranker import RankedSite, SiteRanker
+from src.core.scorer import ScoringInput
 from src.core.site import SiteDatabase, get_site_database
 from src.clients.buoy_client import BuoyClient, OAHU_BUOYS
 from src.clients.nws_client import NWSClient
@@ -997,17 +998,15 @@ class DigestGenerator:
                         else:
                             reasons.append(f"windy (~{site_wind:.0f}mph) - may affect viz")
 
-                    # Determine grade based on wave height and wind
-                    if wave_ht < 2 and (site_wind is None or site_wind < 10):
-                        outlook = "A"
-                    elif wave_ht < 3 and (site_wind is None or site_wind < 15):
-                        outlook = "B"
-                    elif wave_ht < 4:
-                        outlook = "C"
-                    elif wave_ht < 6:
-                        outlook = "D"
-                    else:
-                        outlook = "F"
+                    # Use the actual scorer for consistent grade/score
+                    forecast_input = ScoringInput(
+                        wave_height_ft=wave_ht,
+                        wave_period_s=wave_period,
+                        wind_speed_mph=site_wind,
+                        site_max_safe_height_ft=site.site.max_safe_wave_height,
+                        site_swell_exposure_primary=site.site.swell_exposure.primary,
+                    )
+                    forecast_score = self.ranker.scorer.calculate_score(forecast_input)
 
                     beach = BeachForecast(
                         name=site.site.name,
@@ -1018,8 +1017,8 @@ class DigestGenerator:
                         wind_type="forecast",
                         wind_direction=wind_dir,
                         tide_phase=None,
-                        outlook=outlook,
-                        score=site.score.total_score if site.score else 0,
+                        outlook=forecast_score.grade.value,
+                        score=forecast_score.total_score,
                         best_time=best_time_range,
                         why_recommended=" | ".join(reasons) if reasons else None,
                     )
