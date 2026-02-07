@@ -542,9 +542,9 @@ class DigestFormatter:
                 html.append('<tr><th>#</th><th>Site</th><th>Grade</th><th>Score</th><th>Waves</th><th>WPI</th><th>Wind</th><th>Best Time</th><th>Why</th></tr>')
                 for i, beach in enumerate(day.recommended_beaches, 1):
                     grade_class = f"grade-{beach.outlook}" if len(beach.outlook) == 1 else ""
-                    wave_str = f"{beach.wave_height_ft:.1f}ft" if beach.wave_height_ft else "N/A"
-                    score_str = f"{beach.score:.0f}" if beach.score else "-"
-                    wpi_str = f"{beach.wpi:.1f}" if beach.wpi else "-"
+                    wave_str = f"{beach.wave_height_ft:.1f}ft" if beach.wave_height_ft is not None else "N/A"
+                    score_str = f"{beach.score:.0f}" if beach.score is not None else "-"
+                    wpi_str = f"{beach.wpi:.1f}" if beach.wpi is not None else "-"
 
                     # Wind info - clean format with direction
                     if beach.wind_speed_mph:

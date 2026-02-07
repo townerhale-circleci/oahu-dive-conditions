@@ -591,6 +591,33 @@ class DigestGenerator:
             except Exception as e:
                 logger.debug(f"No PacIOOS data for {coast_name}: {e}")
 
+        # Fallback: if PacIOOS is completely down (circuit breaker tripped),
+        # use current NDBC buoy readings as wave estimates for all forecast days.
+        # Buoys only give current conditions, not forecasts, but it's better than
+        # showing zero beaches.
+        buoy_wave_fallback = {}  # coast_display_name -> {"wave_ht": ft, "wave_period": s}
+        if not buoy_forecasts:
+            logger.info("PacIOOS unavailable, using NDBC buoy data as wave fallback")
+            buoy_to_coast = {
+                "North Shore": "waimea",
+                "Windward": "mokapu",
+                "South Shore": "kalaeloa",
+                "West Side": "kalaeloa",
+                "Southeast": "kalaeloa",
+            }
+            for coast_display, buoy_key in buoy_to_coast.items():
+                try:
+                    buoy_info = OAHU_BUOYS[buoy_key]
+                    conditions = buoy.get_current_conditions(buoy_info["ndbc"])
+                    wave_ft = conditions.get("wave_height_ft")
+                    if wave_ft is not None:
+                        buoy_wave_fallback[coast_display] = {
+                            "wave_ht": wave_ft,
+                            "wave_period": conditions.get("swell_period_s"),
+                        }
+                except Exception as e:
+                    logger.debug(f"Buoy fallback failed for {coast_display}: {e}")
+
         # Get current buoy conditions for "Today"
         current_buoy_data = {}
         try:
@@ -690,6 +717,22 @@ class DigestGenerator:
                                 coast_outlooks[location] = "Unsafe"
                 if coast_outlooks:
                     forecast.outlook_reason = (forecast.outlook_reason or "") + " (extended forecast)"
+
+            # Final fallback: use NDBC buoy current readings if PacIOOS is completely down
+            if not coast_outlooks and buoy_wave_fallback:
+                for location, data in buoy_wave_fallback.items():
+                    height = data["wave_ht"]
+                    wave_heights.append(height)
+                    if height < 3:
+                        coast_outlooks[location] = "Good"
+                    elif height < 5:
+                        coast_outlooks[location] = "Fair"
+                    elif height < 8:
+                        coast_outlooks[location] = "Poor"
+                    else:
+                        coast_outlooks[location] = "Unsafe"
+                if coast_outlooks:
+                    forecast.outlook_reason = (forecast.outlook_reason or "") + " (based on current buoy readings)"
 
             if wave_heights:
                 forecast.wave_height_min_ft = min(wave_heights)
@@ -930,6 +973,14 @@ class DigestGenerator:
                         if coast_data:
                             wave_ht = coast_data["wave_ht"]
                             wave_period = coast_data.get("wave_period")
+
+                    # Final fallback: use NDBC buoy current readings
+                    if wave_ht is None and buoy_wave_fallback:
+                        site_coast_display = self.COAST_DISPLAY_NAMES.get(site.site.coast, site.site.coast)
+                        buoy_data = buoy_wave_fallback.get(site_coast_display)
+                        if buoy_data:
+                            wave_ht = buoy_data["wave_ht"]
+                            wave_period = buoy_data.get("wave_period")
 
                     # Skip if still no wave data or waves too high
                     if wave_ht is None or wave_ht > 6:
