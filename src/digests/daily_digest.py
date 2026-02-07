@@ -951,10 +951,37 @@ class DigestGenerator:
                     except Exception as e:
                         logger.debug(f"OpenWeatherMap query failed for {site.site.name}: {e}")
 
-                    # Fall back to NWS island-wide wind if OWM fails
-                    if site_wind is None and forecast.wind_speed_max_mph:
-                        site_wind = (forecast.wind_speed_min_mph + forecast.wind_speed_max_mph) / 2
-                        wind_dir = forecast.wind_direction
+                    # Fall back to NWS hourly wind data if OWM fails
+                    if site_wind is None and not nws_df.empty:
+                        day_weather = nws_df[nws_df["date"] == forecast_date]
+                        if not day_weather.empty:
+                            day_weather = day_weather.copy()
+                            day_weather["hour"] = day_weather["time_parsed"].dt.hour
+
+                            # Find the calmest 2-3 hour window during daylight
+                            daylight_wind = day_weather[(day_weather["hour"] >= 5) & (day_weather["hour"] <= 18)]
+                            if not daylight_wind.empty:
+                                best_wind_start = None
+                                best_wind_avg = float("inf")
+                                for start_hour in range(5, 17):
+                                    window = daylight_wind[
+                                        (daylight_wind["hour"] >= start_hour) &
+                                        (daylight_wind["hour"] < start_hour + 3)
+                                    ]
+                                    if not window.empty:
+                                        avg = window["wind_speed_mph"].mean()
+                                        if avg < best_wind_avg:
+                                            best_wind_avg = avg
+                                            best_wind_start = start_hour
+                                            best_wind_dir = window.iloc[0]["wind_direction"]
+
+                                if best_wind_start is not None:
+                                    site_wind = round(best_wind_avg, 1)
+                                    wind_dir = best_wind_dir
+                                    # Update best_time_range to the calmest wind window
+                                    if not best_time_range:
+                                        end_hour = min(best_wind_start + 3, 18)
+                                        best_time_range = f"{best_wind_start:02d}:00-{end_hour:02d}:00"
 
                     # Default best time if we couldn't calculate it
                     if not best_time_range:
@@ -987,14 +1014,15 @@ class DigestGenerator:
                     else:
                         reasons.append(f"{wave_ht:.1f}ft waves forecast")
 
-                    # Wind assessment
-                    if site_wind:
+                    # Wind assessment (shows best-window wind, not day average)
+                    if site_wind is not None:
+                        time_note = f" at {best_time_range}" if best_time_range else ""
                         if site_wind < 5:
-                            reasons.append("calm winds expected")
+                            reasons.append(f"calm winds ({site_wind:.0f}mph{time_note})")
                         elif site_wind < 10:
-                            reasons.append("light winds forecast")
+                            reasons.append(f"light winds ({site_wind:.0f}mph{time_note})")
                         elif site_wind < 15:
-                            reasons.append(f"moderate wind (~{site_wind:.0f}mph)")
+                            reasons.append(f"moderate wind (~{site_wind:.0f}mph{time_note})")
                         else:
                             reasons.append(f"windy (~{site_wind:.0f}mph) - may affect viz")
 
