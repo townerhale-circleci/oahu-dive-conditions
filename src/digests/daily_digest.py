@@ -913,12 +913,19 @@ class DigestGenerator:
                         else:
                             reasons.append(f"High WPI ({wpi:.0f}) - challenging")
 
-                    # Wave assessment
+                    # Surface assessment — swell + wind chop combined
+                    wind_for_desc = site_wind or 0
                     if wave_ht:
-                        if wave_ht < 1:
+                        if wave_ht < 1 and wind_for_desc < 8:
                             reasons.append("glass-flat conditions")
-                        elif wave_ht < 2:
+                        elif wave_ht < 1 and wind_for_desc < 15:
+                            reasons.append("small swell but wind chop likely")
+                        elif wave_ht < 1:
+                            reasons.append("small swell but choppy from wind")
+                        elif wave_ht < 2 and wind_for_desc < 10:
                             reasons.append("very calm surface")
+                        elif wave_ht < 2:
+                            reasons.append(f"small swell ({wave_ht:.1f}ft) + wind chop")
                         elif wave_ht < 3:
                             reasons.append("small manageable waves")
                         elif wave_ht < 4:
@@ -948,6 +955,22 @@ class DigestGenerator:
                         else:
                             reasons.append(f"{cond.tide_phase} tide")
 
+                    # Recalculate score with OWM wind (not the stale NWS snapshot)
+                    forecast_input = ScoringInput(
+                        wave_height_ft=wave_ht,
+                        wave_period_s=cond.wave_period_s,
+                        wind_speed_mph=site_wind,
+                        tide_phase=cond.tide_phase,
+                        water_level_ft=cond.water_level_ft,
+                        stream_discharge_cfs=cond.stream_discharge_cfs,
+                        brown_water_advisory=cond.brown_water_advisory,
+                        high_surf_warning=cond.high_surf_warning,
+                        high_surf_advisory=cond.high_surf_advisory,
+                        site_max_safe_height_ft=site.site.max_safe_wave_height,
+                        site_swell_exposure_primary=site.site.swell_exposure.primary,
+                    )
+                    recalc_score = self.ranker.scorer.calculate_score(forecast_input)
+
                     beach = BeachForecast(
                         name=site.site.name,
                         coast=self.COAST_DISPLAY_NAMES.get(site.site.coast, site.site.coast),
@@ -957,8 +980,8 @@ class DigestGenerator:
                         wind_type="forecast",
                         wind_direction=wind_dir,
                         tide_phase=cond.tide_phase,
-                        outlook=site.grade,
-                        score=score_result.total_score,
+                        outlook=recalc_score.grade.value,
+                        score=recalc_score.total_score,
                         best_time=best_time or "morning",
                         why_recommended=" + ".join(reasons) if reasons else None,
                     )
@@ -1150,11 +1173,18 @@ class DigestGenerator:
                         else:
                             reasons.append(f"High WPI ({wpi:.0f})")
 
-                    # Wave conditions
-                    if wave_ht < 1:
+                    # Surface assessment — swell + wind chop combined
+                    wind_for_desc = site_wind or 0
+                    if wave_ht < 1 and wind_for_desc < 8:
                         reasons.append("glass-flat expected")
-                    elif wave_ht < 2:
+                    elif wave_ht < 1 and wind_for_desc < 15:
+                        reasons.append("small swell but wind chop likely")
+                    elif wave_ht < 1:
+                        reasons.append("small swell but choppy from wind")
+                    elif wave_ht < 2 and wind_for_desc < 10:
                         reasons.append("very calm forecast")
+                    elif wave_ht < 2:
+                        reasons.append(f"small swell ({wave_ht:.1f}ft) + wind chop")
                     elif wave_ht < 3:
                         reasons.append("small waves forecast")
                     elif wave_ht < 4:
