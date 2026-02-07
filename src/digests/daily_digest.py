@@ -569,12 +569,13 @@ class DigestGenerator:
             nws_df = pd.DataFrame()
 
         # Offshore reference points for wave forecasts (in water, not on land)
-        # These are ~1-2 miles offshore from each coast
+        # These must be in the ocean within PacIOOS SWAN model grid (not on land cells!)
+        # Verified against ERDDAP — points that return NaN are on land.
         wave_reference_points = {
             "South Shore": (21.25, -157.85),      # Off Waikiki
             "West Side": (21.40, -158.20),        # Off Makaha
-            "North Shore": (21.65, -158.05),      # Off Waimea
-            "Windward": (21.45, -157.75),         # Off Kaneohe
+            "North Shore": (21.70, -158.10),      # Off Waimea (further offshore)
+            "Windward": (21.45, -157.70),         # Off Kaneohe (further east)
         }
 
         # Get wave forecast data for each coast reference point
