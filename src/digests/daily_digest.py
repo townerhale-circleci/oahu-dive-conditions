@@ -952,36 +952,66 @@ class DigestGenerator:
                         logger.debug(f"OpenWeatherMap query failed for {site.site.name}: {e}")
 
                     # Fall back to NWS hourly wind data if OWM fails
+                    # Find ALL calm wind windows so the user can pick their time
+                    nws_calm_windows = []
                     if site_wind is None and not nws_df.empty:
                         day_weather = nws_df[nws_df["date"] == forecast_date]
                         if not day_weather.empty:
                             day_weather = day_weather.copy()
                             day_weather["hour"] = day_weather["time_parsed"].dt.hour
 
-                            # Find the calmest 2-3 hour window during daylight
                             daylight_wind = day_weather[(day_weather["hour"] >= 5) & (day_weather["hour"] <= 18)]
                             if not daylight_wind.empty:
-                                best_wind_start = None
-                                best_wind_avg = float("inf")
-                                for start_hour in range(5, 17):
-                                    window = daylight_wind[
-                                        (daylight_wind["hour"] >= start_hour) &
-                                        (daylight_wind["hour"] < start_hour + 3)
-                                    ]
-                                    if not window.empty:
-                                        avg = window["wind_speed_mph"].mean()
-                                        if avg < best_wind_avg:
-                                            best_wind_avg = avg
-                                            best_wind_start = start_hour
-                                            best_wind_dir = window.iloc[0]["wind_direction"]
+                                # Scan hourly data to find contiguous calm periods (< 12 mph)
+                                sorted_hours = daylight_wind.sort_values("hour")
+                                current_window_start = None
+                                current_window_speeds = []
+                                current_window_dir = None
 
-                                if best_wind_start is not None:
-                                    site_wind = round(best_wind_avg, 1)
-                                    wind_dir = best_wind_dir
-                                    # Update best_time_range to the calmest wind window
+                                for _, row in sorted_hours.iterrows():
+                                    if row["wind_speed_mph"] < 12:
+                                        if current_window_start is None:
+                                            current_window_start = int(row["hour"])
+                                            current_window_dir = row["wind_direction"]
+                                        current_window_speeds.append(row["wind_speed_mph"])
+                                    else:
+                                        if current_window_start is not None and len(current_window_speeds) >= 2:
+                                            end_h = current_window_start + len(current_window_speeds)
+                                            avg_spd = sum(current_window_speeds) / len(current_window_speeds)
+                                            nws_calm_windows.append({
+                                                "start": current_window_start,
+                                                "end": min(end_h, 19),
+                                                "avg_mph": round(avg_spd, 1),
+                                                "direction": current_window_dir,
+                                            })
+                                        current_window_start = None
+                                        current_window_speeds = []
+                                        current_window_dir = None
+
+                                # Close final window
+                                if current_window_start is not None and len(current_window_speeds) >= 2:
+                                    end_h = current_window_start + len(current_window_speeds)
+                                    avg_spd = sum(current_window_speeds) / len(current_window_speeds)
+                                    nws_calm_windows.append({
+                                        "start": current_window_start,
+                                        "end": min(end_h, 19),
+                                        "avg_mph": round(avg_spd, 1),
+                                        "direction": current_window_dir,
+                                    })
+
+                                # Use the calmest window for scoring
+                                if nws_calm_windows:
+                                    best_win = min(nws_calm_windows, key=lambda w: w["avg_mph"])
+                                    site_wind = best_win["avg_mph"]
+                                    wind_dir = best_win["direction"]
                                     if not best_time_range:
-                                        end_hour = min(best_wind_start + 3, 18)
-                                        best_time_range = f"{best_wind_start:02d}:00-{end_hour:02d}:00"
+                                        best_time_range = f"{best_win['start']:02d}:00-{best_win['end']:02d}:00"
+                                else:
+                                    # No calm windows — use midday as representative
+                                    midday = daylight_wind[daylight_wind["hour"].between(10, 14)]
+                                    if not midday.empty:
+                                        site_wind = round(midday["wind_speed_mph"].mean(), 1)
+                                        wind_dir = midday.iloc[0]["wind_direction"]
 
                     # Default best time if we couldn't calculate it
                     if not best_time_range:
@@ -1014,15 +1044,20 @@ class DigestGenerator:
                     else:
                         reasons.append(f"{wave_ht:.1f}ft waves forecast")
 
-                    # Wind assessment (shows best-window wind, not day average)
-                    if site_wind is not None:
-                        time_note = f" at {best_time_range}" if best_time_range else ""
+                    # Wind assessment — list all calm windows so user can pick
+                    if nws_calm_windows:
+                        window_strs = [
+                            f"{w['avg_mph']:.0f}mph {w['start']:02d}:00-{w['end']:02d}:00"
+                            for w in sorted(nws_calm_windows, key=lambda w: w["start"])
+                        ]
+                        reasons.append(f"calm windows: {', '.join(window_strs)}")
+                    elif site_wind is not None:
                         if site_wind < 5:
-                            reasons.append(f"calm winds ({site_wind:.0f}mph{time_note})")
+                            reasons.append(f"calm winds ({site_wind:.0f}mph)")
                         elif site_wind < 10:
-                            reasons.append(f"light winds ({site_wind:.0f}mph{time_note})")
+                            reasons.append(f"light winds ({site_wind:.0f}mph)")
                         elif site_wind < 15:
-                            reasons.append(f"moderate wind (~{site_wind:.0f}mph{time_note})")
+                            reasons.append(f"moderate wind (~{site_wind:.0f}mph)")
                         else:
                             reasons.append(f"windy (~{site_wind:.0f}mph) - may affect viz")
 
