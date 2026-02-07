@@ -6,10 +6,13 @@ Free tier: 1000 calls/day, 5-day forecast with 3-hour intervals.
 
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 import requests
+
+HST = ZoneInfo("Pacific/Honolulu")
 
 logger = logging.getLogger(__name__)
 
@@ -118,9 +121,10 @@ class OpenWeatherMapClient:
         target = target_date.date() if target_date else datetime.now().date()
 
         # Find forecast entries for the target date
+        # OWM returns UTC timestamps — convert to Hawaii time for correct date/hour
         day_forecasts = []
         for entry in data["list"]:
-            entry_time = datetime.fromtimestamp(entry["dt"])
+            entry_time = datetime.fromtimestamp(entry["dt"], tz=timezone.utc).astimezone(HST)
             if entry_time.date() == target:
                 day_forecasts.append({
                     "hour": entry_time.hour,
