@@ -795,6 +795,11 @@ class DigestGenerator:
 
             if i == 0 and ranked_sites:
                 # TODAY: Use actual ranked site data - show ALL diveable sites
+                # Use OWM for per-site wind forecast (full day) instead of NWS snapshot
+                # which only shows the wind at report generation time (e.g. 5 AM calm)
+                owm_today = OpenWeatherMapClient()
+                today_dt = datetime.combine(forecast_date, datetime.min.time())
+
                 for site in ranked_sites:
                     # Skip Hanauma Bay (user never goes there)
                     if "hanauma" in site.site.name.lower():
@@ -808,35 +813,92 @@ class DigestGenerator:
                     cond = site.conditions
                     score_result = site.score
 
-                    # For TODAY: Can't use PacIOOS (forecast only starts tomorrow)
-                    # Use site preferences and current conditions
-                    site_optimal_time = site.site.optimal_time  # "morning" or "any"
-                    site_optimal_tide = site.site.optimal_tide  # "high", "low", or "any"
+                    # Get per-site wind forecast for the FULL day from OWM
+                    site_wind = None
+                    wind_dir = None
+                    best_time = None
+                    try:
+                        wind_data = owm_today.get_wind_forecast(
+                            site.site.coordinates.lat,
+                            site.site.coordinates.lon,
+                            today_dt,
+                        )
+                        if wind_data:
+                            site_wind = wind_data.get("wind_speed_mph")
+                            wind_dir_deg = wind_data.get("wind_direction_deg")
+                            if wind_dir_deg is not None:
+                                wind_dir = owm_today.get_wind_direction_name(wind_dir_deg)
+                            best_time = wind_data.get("best_time_range")
+                    except Exception as e:
+                        logger.debug(f"OWM today query failed for {site.site.name}: {e}")
 
-                    # Build best time recommendation
-                    if site_optimal_time == "morning":
-                        best_time = "06:00-10:00"
-                    else:
-                        # Check current time and recommend accordingly
-                        current_hour = datetime.now().hour
-                        if current_hour < 10:
-                            best_time = "now - 10:00"
-                        elif current_hour < 14:
-                            best_time = "now - 14:00"
-                        else:
-                            best_time = "now - sunset"
+                    # Fall back to NWS hourly for today's wind
+                    nws_calm_windows_today = []
+                    if site_wind is None and not nws_df.empty:
+                        day_weather = nws_df[nws_df["date"] == forecast_date]
+                        if not day_weather.empty:
+                            day_weather = day_weather.copy()
+                            day_weather["hour"] = day_weather["time_parsed"].dt.hour
+                            daylight_wind = day_weather[(day_weather["hour"] >= 5) & (day_weather["hour"] <= 18)]
+                            if not daylight_wind.empty:
+                                sorted_hours = daylight_wind.sort_values("hour")
+                                current_window_start = None
+                                current_window_speeds = []
+                                current_window_dir = None
+                                for _, row in sorted_hours.iterrows():
+                                    if row["wind_speed_mph"] < 12:
+                                        if current_window_start is None:
+                                            current_window_start = int(row["hour"])
+                                            current_window_dir = row["wind_direction"]
+                                        current_window_speeds.append(row["wind_speed_mph"])
+                                    else:
+                                        if current_window_start is not None and len(current_window_speeds) >= 2:
+                                            end_h = current_window_start + len(current_window_speeds)
+                                            avg_spd = sum(current_window_speeds) / len(current_window_speeds)
+                                            nws_calm_windows_today.append({
+                                                "start": current_window_start,
+                                                "end": min(end_h, 19),
+                                                "avg_mph": round(avg_spd, 1),
+                                                "direction": current_window_dir,
+                                            })
+                                        current_window_start = None
+                                        current_window_speeds = []
+                                        current_window_dir = None
+                                if current_window_start is not None and len(current_window_speeds) >= 2:
+                                    end_h = current_window_start + len(current_window_speeds)
+                                    avg_spd = sum(current_window_speeds) / len(current_window_speeds)
+                                    nws_calm_windows_today.append({
+                                        "start": current_window_start,
+                                        "end": min(end_h, 19),
+                                        "avg_mph": round(avg_spd, 1),
+                                        "direction": current_window_dir,
+                                    })
 
+                                if nws_calm_windows_today:
+                                    best_win = min(nws_calm_windows_today, key=lambda w: w["avg_mph"])
+                                    site_wind = best_win["avg_mph"]
+                                    wind_dir = best_win["direction"]
+                                    if not best_time:
+                                        best_time = f"{best_win['start']:02d}:00-{best_win['end']:02d}:00"
+                                else:
+                                    midday = daylight_wind[daylight_wind["hour"].between(10, 14)]
+                                    if not midday.empty:
+                                        site_wind = round(midday["wind_speed_mph"].mean(), 1)
+                                        wind_dir = midday.iloc[0]["wind_direction"]
+
+                    # Build best time with tide info
+                    if not best_time:
+                        best_time = "06:00-10:00 (default)"
                     # Add tide recommendation
-                    if site_optimal_tide == "high" and cond.next_high_tide:
+                    if site.site.optimal_tide == "high" and cond.next_high_tide:
                         best_time = f"{best_time} (high tide: {cond.next_high_tide[-5:]})"
-                    elif site_optimal_tide == "low" and cond.next_low_tide:
+                    elif site.site.optimal_tide == "low" and cond.next_low_tide:
                         best_time = f"{best_time} (low tide: {cond.next_low_tide[-5:]})"
                     elif cond.tide_phase:
                         best_time = f"{best_time} ({cond.tide_phase} tide)"
 
                     # Build detailed "Why" explanation
                     reasons = []
-                    wind_type = score_result.wind_type if hasattr(score_result, 'wind_type') else "unknown"
 
                     # WPI assessment
                     wpi = None
@@ -862,18 +924,22 @@ class DigestGenerator:
                         elif wave_ht < 4:
                             reasons.append("moderate chop")
 
-                    # Wind assessment
-                    if cond.wind_speed_mph:
-                        if cond.wind_speed_mph < 5:
-                            reasons.append("near calm winds")
-                        elif wind_type == "offshore":
-                            reasons.append(f"offshore wind ({cond.wind_speed_mph:.0f}mph) - good visibility")
-                        elif wind_type == "onshore":
-                            reasons.append(f"onshore wind ({cond.wind_speed_mph:.0f}mph) - reduced viz")
-                        elif wind_type == "cross-shore" and cond.wind_speed_mph < 12:
-                            reasons.append(f"light cross-shore ({cond.wind_speed_mph:.0f}mph)")
-                        elif cond.wind_speed_mph > 15:
-                            reasons.append(f"windy ({cond.wind_speed_mph:.0f}mph)")
+                    # Wind assessment — list all calm windows for today too
+                    if nws_calm_windows_today:
+                        window_strs = [
+                            f"{w['avg_mph']:.0f}mph {w['start']:02d}:00-{w['end']:02d}:00"
+                            for w in sorted(nws_calm_windows_today, key=lambda w: w["start"])
+                        ]
+                        reasons.append(f"calm windows: {', '.join(window_strs)}")
+                    elif site_wind is not None:
+                        if site_wind < 5:
+                            reasons.append(f"calm winds ({site_wind:.0f}mph)")
+                        elif site_wind < 10:
+                            reasons.append(f"light winds ({site_wind:.0f}mph)")
+                        elif site_wind < 15:
+                            reasons.append(f"moderate wind (~{site_wind:.0f}mph)")
+                        else:
+                            reasons.append(f"windy (~{site_wind:.0f}mph) - may affect viz")
 
                     # Tide info
                     if cond.tide_phase:
@@ -887,9 +953,9 @@ class DigestGenerator:
                         coast=self.COAST_DISPLAY_NAMES.get(site.site.coast, site.site.coast),
                         wave_height_ft=wave_ht,
                         wave_period_s=cond.wave_period_s,
-                        wind_speed_mph=cond.wind_speed_mph,
-                        wind_type=wind_type,
-                        wind_direction=None,
+                        wind_speed_mph=site_wind,
+                        wind_type="forecast",
+                        wind_direction=wind_dir,
                         tide_phase=cond.tide_phase,
                         outlook=site.grade,
                         score=score_result.total_score,
@@ -1067,7 +1133,7 @@ class DigestGenerator:
 
                     # Default best time if we couldn't calculate it
                     if not best_time_range:
-                        best_time_range = "06:00-10:00"
+                        best_time_range = "06:00-10:00 (default)"
 
                     # Build detailed "Why" explanation
                     reasons = []

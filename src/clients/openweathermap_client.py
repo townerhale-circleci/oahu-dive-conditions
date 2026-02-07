@@ -149,13 +149,18 @@ class OpenWeatherMapClient:
                 }
             return {}
 
+        # Filter to daylight hours only (5 AM - 6 PM) for dive recommendations
+        daylight_forecasts = [f for f in day_forecasts if 5 <= f["hour"] <= 18]
+        if not daylight_forecasts:
+            daylight_forecasts = day_forecasts  # Fall back to all hours if none in daylight
+
         # Find the best time (lowest wind speed, preferring morning 5-9 AM)
-        morning_forecasts = [f for f in day_forecasts if 5 <= f["hour"] <= 9]
+        morning_forecasts = [f for f in daylight_forecasts if 5 <= f["hour"] <= 9]
 
         if morning_forecasts:
             best = min(morning_forecasts, key=lambda x: x["wind_speed_mph"])
         else:
-            best = min(day_forecasts, key=lambda x: x["wind_speed_mph"])
+            best = min(daylight_forecasts, key=lambda x: x["wind_speed_mph"])
 
         # Calculate average for the day
         avg_wind = sum(f["wind_speed_mph"] for f in day_forecasts) / len(day_forecasts)
@@ -175,19 +180,24 @@ class OpenWeatherMapClient:
         }
 
     def _find_best_time_range(self, forecasts: list) -> str:
-        """Find the best time range for diving (lowest wind period)."""
+        """Find the best time range for diving (lowest wind period, daylight only)."""
         if not forecasts:
-            return "5-9 AM"
+            return "05:00-09:00"
+
+        # Filter to daylight hours (5 AM - 6 PM)
+        daylight = [f for f in forecasts if 5 <= f["hour"] <= 18]
+        if not daylight:
+            return "05:00-09:00"
 
         # Sort by hour
-        sorted_forecasts = sorted(forecasts, key=lambda x: x["hour"])
+        sorted_forecasts = sorted(daylight, key=lambda x: x["hour"])
 
-        # Find periods with wind < 10 mph
+        # Find periods with wind < 12 mph
         calm_periods = []
         current_start = None
 
         for f in sorted_forecasts:
-            if f["wind_speed_mph"] < 12:  # Acceptable wind threshold
+            if f["wind_speed_mph"] < 12:
                 if current_start is None:
                     current_start = f["hour"]
             else:
@@ -196,7 +206,7 @@ class OpenWeatherMapClient:
                     current_start = None
 
         if current_start is not None:
-            calm_periods.append((current_start, sorted_forecasts[-1]["hour"] + 3))
+            calm_periods.append((current_start, min(sorted_forecasts[-1]["hour"] + 3, 18)))
 
         if calm_periods:
             # Prefer morning periods
@@ -206,7 +216,7 @@ class OpenWeatherMapClient:
             else:
                 start, end = calm_periods[0]
 
-            return f"{start:02d}:00-{min(end, 23):02d}:00"
+            return f"{start:02d}:00-{min(end, 18):02d}:00"
 
         # Default to early morning
         return "05:00-09:00"
