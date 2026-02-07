@@ -539,7 +539,7 @@ class DigestFormatter:
                     html.append(f'<strong>Diveable Sites ({len(day.recommended_beaches)}) - Forecast:</strong>')
                     html.append('<div style="font-size:0.8em; color:#666; margin:5px 0;">Note: Waves are coast-level forecast, wind is island-wide forecast</div>')
                 html.append('<table style="font-size: 0.85em; margin-top: 8px;">')
-                html.append('<tr><th>#</th><th>Site</th><th>Grade</th><th>Score</th><th>Waves</th><th>WPI</th><th>Wind</th><th>Best Time</th><th>Why</th></tr>')
+                html.append('<tr><th>#</th><th>Site</th><th>Grade</th><th>Score</th><th>Waves</th><th>WPI</th><th>Wind</th><th>Rain</th><th>Best Time</th><th>Why</th></tr>')
                 for i, beach in enumerate(day.recommended_beaches, 1):
                     grade_class = f"grade-{beach.outlook}" if len(beach.outlook) == 1 else ""
                     wave_str = f"{beach.wave_height_ft:.1f}ft" if beach.wave_height_ft is not None else "N/A"
@@ -574,6 +574,22 @@ class DigestFormatter:
                     html.append(f'<td>{wave_str}</td>')
                     html.append(f'<td>{wpi_str}</td>')
                     html.append(f'<td>{wind_str}</td>')
+
+                    # Rain column with color coding
+                    if beach.rain_chance is not None and beach.rain_chance > 0:
+                        if beach.rain_chance <= 20:
+                            rain_color = "#2b8a3e"  # green
+                        elif beach.rain_chance <= 50:
+                            rain_color = "#e67700"  # yellow/orange
+                        elif beach.rain_chance <= 70:
+                            rain_color = "#d9480f"  # orange
+                        else:
+                            rain_color = "#c92a2a"  # red
+                        rain_str = f'<span style="color:{rain_color};font-weight:bold">{beach.rain_chance}%</span>'
+                    else:
+                        rain_str = "-"
+                    html.append(f'<td>{rain_str}</td>')
+
                     html.append(f'<td>{time_str}</td>')
                     html.append(f'<td style="font-size:0.9em">{why_str}</td>')
                     html.append(f'</tr>')

@@ -133,6 +133,8 @@ class OpenWeatherMapClient:
                     "wind_direction_deg": entry.get("wind", {}).get("deg", 0),
                     "wind_gust_mph": entry.get("wind", {}).get("gust", 0),
                     "conditions": entry.get("weather", [{}])[0].get("main", ""),
+                    "rain_pop": entry.get("pop", 0),  # 0-1 probability of precipitation
+                    "rain_3h_mm": entry.get("rain", {}).get("3h", 0),  # mm in 3h period
                 })
 
         if not day_forecasts:
@@ -168,6 +170,27 @@ class OpenWeatherMapClient:
         # Find best time range (consecutive hours with low wind)
         best_range = self._find_best_time_range(day_forecasts)
 
+        # Rain aggregates
+        # Max probability across daylight hours (as percentage 0-100)
+        daylight_pops = [f["rain_pop"] for f in daylight_forecasts]
+        rain_chance = round(max(daylight_pops) * 100) if daylight_pops else 0
+
+        # Total expected rainfall (mm) across all entries for the day
+        rain_amount_mm = sum(f["rain_3h_mm"] for f in day_forecasts)
+
+        # Morning rain (5-9 AM) — relevant for early dive windows
+        morning_rain_forecasts = [f for f in day_forecasts if 5 <= f["hour"] <= 9]
+        morning_rain_chance = (
+            round(max(f["rain_pop"] for f in morning_rain_forecasts) * 100)
+            if morning_rain_forecasts else 0
+        )
+        morning_rain_mm = sum(f["rain_3h_mm"] for f in morning_rain_forecasts)
+
+        # Overnight rain (previous evening through early AM: hours 18-4)
+        # This matters for runoff/viz even if morning is clear
+        overnight_forecasts = [f for f in day_forecasts if f["hour"] <= 4]
+        overnight_rain_mm = sum(f["rain_3h_mm"] for f in overnight_forecasts)
+
         return {
             "wind_speed_mph": best["wind_speed_mph"],
             "wind_direction_deg": best["wind_direction_deg"],
@@ -177,6 +200,11 @@ class OpenWeatherMapClient:
             "best_time_range": best_range,
             "conditions": best["conditions"],
             "hourly_data": day_forecasts,
+            "rain_chance": rain_chance,
+            "rain_amount_mm": rain_amount_mm,
+            "morning_rain_chance": morning_rain_chance,
+            "morning_rain_mm": morning_rain_mm,
+            "overnight_rain_mm": overnight_rain_mm,
         }
 
     def _find_best_time_range(self, forecasts: list) -> str:

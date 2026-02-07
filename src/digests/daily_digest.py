@@ -89,6 +89,7 @@ class BeachForecast:
     score: float = 0
     best_time: Optional[str] = None  # "5-9 AM", etc.
     why_recommended: Optional[str] = None  # Detailed explanation
+    rain_chance: Optional[int] = None  # percentage 0-100
 
     @property
     def wpi(self) -> Optional[float]:
@@ -452,6 +453,58 @@ class DigestGenerator:
 
         return list(api_stats.values())
 
+    @staticmethod
+    def _parse_time_range(time_str: str) -> tuple[int, int]:
+        """Parse time range string like '05:00-09:00' or '06:00-10:00 (default)'.
+
+        Returns (start_hour, end_hour) or (5, 9) as default.
+        """
+        try:
+            time_part = time_str.split("(")[0].strip()
+            parts = time_part.split("-")
+            start = int(parts[0].split(":")[0])
+            end = int(parts[1].split(":")[0])
+            return start, end
+        except (ValueError, IndexError):
+            return 5, 9
+
+    @staticmethod
+    def _compute_window_rain(
+        hourly_data: list[dict],
+        window_start: int,
+        window_end: int,
+    ) -> tuple[int, float, float]:
+        """Compute rain stats for a specific dive window from OWM hourly data.
+
+        Args:
+            hourly_data: List of hourly forecast dicts with rain_pop and rain_3h_mm
+            window_start: Start hour of dive window
+            window_end: End hour of dive window
+
+        Returns:
+            (window_rain_chance_pct, window_rain_mm, pre_window_rain_mm)
+            - window_rain_chance_pct: max pop during window as 0-100%
+            - window_rain_mm: total rain expected during window
+            - pre_window_rain_mm: total rain from midnight to window start (runoff/viz)
+        """
+        window_entries = [
+            e for e in hourly_data
+            if window_start <= e["hour"] <= window_end
+        ]
+        pre_window_entries = [
+            e for e in hourly_data
+            if e["hour"] < window_start
+        ]
+
+        window_rain_chance = (
+            round(max(e["rain_pop"] for e in window_entries) * 100)
+            if window_entries else 0
+        )
+        window_rain_mm = sum(e["rain_3h_mm"] for e in window_entries)
+        pre_window_rain_mm = sum(e["rain_3h_mm"] for e in pre_window_entries)
+
+        return window_rain_chance, window_rain_mm, pre_window_rain_mm
+
     def _find_best_time_window(
         self,
         pacioos: PacIOOSClient,
@@ -813,10 +866,11 @@ class DigestGenerator:
                     cond = site.conditions
                     score_result = site.score
 
-                    # Get per-site wind forecast for the FULL day from OWM
+                    # Get per-site wind + rain forecast for the FULL day from OWM
                     site_wind = None
                     wind_dir = None
                     best_time = None
+                    owm_hourly = None
                     try:
                         wind_data = owm_today.get_wind_forecast(
                             site.site.coordinates.lat,
@@ -829,6 +883,7 @@ class DigestGenerator:
                             if wind_dir_deg is not None:
                                 wind_dir = owm_today.get_wind_direction_name(wind_dir_deg)
                             best_time = wind_data.get("best_time_range")
+                            owm_hourly = wind_data.get("hourly_data")
                     except Exception as e:
                         logger.debug(f"OWM today query failed for {site.site.name}: {e}")
 
@@ -897,6 +952,17 @@ class DigestGenerator:
                     elif cond.tide_phase:
                         best_time = f"{best_time} ({cond.tide_phase} tide)"
 
+                    # Compute rain for the specific dive window
+                    site_rain_chance = None
+                    site_rain_mm = 0
+                    if owm_hourly:
+                        win_start, win_end = self._parse_time_range(best_time)
+                        site_rain_chance, window_mm, pre_window_mm = (
+                            self._compute_window_rain(owm_hourly, win_start, win_end)
+                        )
+                        # Scoring uses window rain + pre-window runoff
+                        site_rain_mm = window_mm + pre_window_mm
+
                     # Build detailed "Why" explanation
                     reasons = []
 
@@ -913,17 +979,22 @@ class DigestGenerator:
                         else:
                             reasons.append(f"High WPI ({wpi:.0f}) - challenging")
 
-                    # Surface assessment — swell + wind chop combined
+                    # Surface assessment — swell + wind + rain combined
                     wind_for_desc = site_wind or 0
+                    rain_pct = site_rain_chance or 0
                     if wave_ht:
-                        if wave_ht < 1 and wind_for_desc < 8:
+                        if wave_ht < 1 and wind_for_desc < 8 and rain_pct <= 20:
                             reasons.append("glass-flat conditions")
+                        elif wave_ht < 1 and wind_for_desc < 8:
+                            reasons.append("calm swell/wind but rain on surface")
                         elif wave_ht < 1 and wind_for_desc < 15:
                             reasons.append("small swell but wind chop likely")
                         elif wave_ht < 1:
                             reasons.append("small swell but choppy from wind")
-                        elif wave_ht < 2 and wind_for_desc < 10:
+                        elif wave_ht < 2 and wind_for_desc < 10 and rain_pct <= 20:
                             reasons.append("very calm surface")
+                        elif wave_ht < 2 and wind_for_desc < 10:
+                            reasons.append("calm swell/wind but rain chop")
                         elif wave_ht < 2:
                             reasons.append(f"small swell ({wave_ht:.1f}ft) + wind chop")
                         elif wave_ht < 3:
@@ -955,6 +1026,18 @@ class DigestGenerator:
                         else:
                             reasons.append(f"{cond.tide_phase} tide")
 
+                    # Rain assessment
+                    if site_rain_chance and site_rain_chance > 20:
+                        if site_rain_chance > 70:
+                            reasons.append(f"{site_rain_chance}% rain — reduced viz likely")
+                        elif site_rain_chance > 50:
+                            reasons.append(f"{site_rain_chance}% rain chance — viz may drop")
+                        else:
+                            reasons.append(f"{site_rain_chance}% rain chance")
+
+                    # Convert rain mm to inches for scorer's visibility penalty
+                    rain_inches = site_rain_mm / 25.4 if site_rain_mm else None
+
                     # Recalculate score with OWM wind (not the stale NWS snapshot)
                     forecast_input = ScoringInput(
                         wave_height_ft=wave_ht,
@@ -963,6 +1046,7 @@ class DigestGenerator:
                         tide_phase=cond.tide_phase,
                         water_level_ft=cond.water_level_ft,
                         stream_discharge_cfs=cond.stream_discharge_cfs,
+                        rainfall_48h_inches=rain_inches,
                         brown_water_advisory=cond.brown_water_advisory,
                         high_surf_warning=cond.high_surf_warning,
                         high_surf_advisory=cond.high_surf_advisory,
@@ -984,6 +1068,7 @@ class DigestGenerator:
                         score=recalc_score.total_score,
                         best_time=best_time or "morning",
                         why_recommended=" + ".join(reasons) if reasons else None,
+                        rain_chance=site_rain_chance,
                     )
                     recommended.append(beach)
 
@@ -1076,9 +1161,10 @@ class DigestGenerator:
                     if wave_ht is None or wave_ht > 6:
                         continue
 
-                    # Get site-specific wind forecast from OpenWeatherMap
+                    # Get site-specific wind + rain forecast from OpenWeatherMap
                     site_wind = None
                     wind_dir = None
+                    owm_hourly = None
                     try:
                         wind_data = owm.get_wind_forecast(site_lat, site_lon, forecast.date)
                         if wind_data:
@@ -1089,6 +1175,7 @@ class DigestGenerator:
                             # Use OWM best time if we don't have wave-based time
                             if not best_time_range:
                                 best_time_range = wind_data.get("best_time_range")
+                            owm_hourly = wind_data.get("hourly_data")
                     except Exception as e:
                         logger.debug(f"OpenWeatherMap query failed for {site.site.name}: {e}")
 
@@ -1158,6 +1245,16 @@ class DigestGenerator:
                     if not best_time_range:
                         best_time_range = "06:00-10:00 (default)"
 
+                    # Compute rain for the specific dive window
+                    site_rain_chance = None
+                    site_rain_mm = 0
+                    if owm_hourly:
+                        win_start, win_end = self._parse_time_range(best_time_range)
+                        site_rain_chance, window_mm, pre_window_mm = (
+                            self._compute_window_rain(owm_hourly, win_start, win_end)
+                        )
+                        site_rain_mm = window_mm + pre_window_mm
+
                     # Build detailed "Why" explanation
                     reasons = []
 
@@ -1173,16 +1270,21 @@ class DigestGenerator:
                         else:
                             reasons.append(f"High WPI ({wpi:.0f})")
 
-                    # Surface assessment — swell + wind chop combined
+                    # Surface assessment — swell + wind + rain combined
                     wind_for_desc = site_wind or 0
-                    if wave_ht < 1 and wind_for_desc < 8:
+                    rain_pct = site_rain_chance or 0
+                    if wave_ht < 1 and wind_for_desc < 8 and rain_pct <= 20:
                         reasons.append("glass-flat expected")
+                    elif wave_ht < 1 and wind_for_desc < 8:
+                        reasons.append("calm swell/wind but rain on surface")
                     elif wave_ht < 1 and wind_for_desc < 15:
                         reasons.append("small swell but wind chop likely")
                     elif wave_ht < 1:
                         reasons.append("small swell but choppy from wind")
-                    elif wave_ht < 2 and wind_for_desc < 10:
+                    elif wave_ht < 2 and wind_for_desc < 10 and rain_pct <= 20:
                         reasons.append("very calm forecast")
+                    elif wave_ht < 2 and wind_for_desc < 10:
+                        reasons.append("calm swell/wind but rain chop")
                     elif wave_ht < 2:
                         reasons.append(f"small swell ({wave_ht:.1f}ft) + wind chop")
                     elif wave_ht < 3:
@@ -1209,11 +1311,24 @@ class DigestGenerator:
                         else:
                             reasons.append(f"windy (~{site_wind:.0f}mph) - may affect viz")
 
+                    # Rain assessment
+                    if site_rain_chance and site_rain_chance > 20:
+                        if site_rain_chance > 70:
+                            reasons.append(f"{site_rain_chance}% rain — reduced viz likely")
+                        elif site_rain_chance > 50:
+                            reasons.append(f"{site_rain_chance}% rain chance — viz may drop")
+                        else:
+                            reasons.append(f"{site_rain_chance}% rain chance")
+
+                    # Convert rain mm to inches for scorer's visibility penalty
+                    rain_inches = site_rain_mm / 25.4 if site_rain_mm else None
+
                     # Use the actual scorer for consistent grade/score
                     forecast_input = ScoringInput(
                         wave_height_ft=wave_ht,
                         wave_period_s=wave_period,
                         wind_speed_mph=site_wind,
+                        rainfall_48h_inches=rain_inches,
                         site_max_safe_height_ft=site.site.max_safe_wave_height,
                         site_swell_exposure_primary=site.site.swell_exposure.primary,
                     )
@@ -1232,6 +1347,7 @@ class DigestGenerator:
                         score=forecast_score.total_score,
                         best_time=best_time_range,
                         why_recommended=" | ".join(reasons) if reasons else None,
+                        rain_chance=site_rain_chance,
                     )
                     recommended.append(beach)
 
