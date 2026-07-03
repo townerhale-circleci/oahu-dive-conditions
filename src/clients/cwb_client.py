@@ -7,9 +7,10 @@ and reduced visibility.
 
 import hashlib
 import json
+import logging
 import re
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -18,11 +19,69 @@ import requests
 from bs4 import BeautifulSoup
 
 
+logger = logging.getLogger(__name__)
+
+
 # Hawaii DOH Clean Water Branch advisory page
 CWB_ADVISORY_URL = "https://health.hawaii.gov/cwb/clean-water-branch-beach-advisories/"
 CWB_API_URL = "https://eha-cloud.doh.hawaii.gov/cwb/api/advisories"
 
 CACHE_TTL_SECONDS = 1800  # 30 minutes
+
+# Only advisories posted within this window are considered current. Older
+# advisories are assumed cleared even if the feed still lists them.
+ADVISORY_MAX_AGE_DAYS = 7
+
+# Map well-known Oahu DOH advisory beach/location names to a coast. Keys are
+# lowercase substrings matched against the advisory beach name. Curated from the
+# common CWB advisory locations; unmappable beaches are excluded (not penalized
+# island-wide).
+COAST_KEYWORDS: dict[str, str] = {
+    # south_shore
+    "ala moana": "south_shore",
+    "waikiki": "south_shore",
+    "kewalo": "south_shore",
+    "sand island": "south_shore",
+    "keehi": "south_shore",
+    "kakaako": "south_shore",
+    "magic island": "south_shore",
+    # southeast
+    "hanauma": "southeast",
+    "sandy": "southeast",
+    "maunalua": "southeast",
+    "portlock": "southeast",
+    "kahala": "southeast",
+    "hawaii kai": "southeast",
+    "makapuu": "southeast",
+    # windward
+    "kailua": "windward",
+    "kaneohe": "windward",
+    "waimanalo": "windward",
+    "kahana": "windward",
+    "punaluu": "windward",
+    "laie": "windward",
+    "hauula": "windward",
+    "kaaawa": "windward",
+    "lanikai": "windward",
+    "kualoa": "windward",
+    # north_shore
+    "haleiwa": "north_shore",
+    "waimea": "north_shore",
+    "sunset": "north_shore",
+    "pupukea": "north_shore",
+    "mokuleia": "north_shore",
+    "kawela": "north_shore",
+    "waialua": "north_shore",
+    # west_side
+    "waianae": "west_side",
+    "makaha": "west_side",
+    "nanakule": "west_side",
+    "nanakuli": "west_side",
+    "maili": "west_side",
+    "ko olina": "west_side",
+    "ewa": "west_side",
+    "pokai": "west_side",
+}
 
 # Keywords indicating water quality issues
 ADVISORY_KEYWORDS = [
@@ -59,6 +118,61 @@ OAHU_LOCATIONS = [
     "sandy beach",
     "makapuu",
 ]
+
+
+def _parse_posted_date(value) -> Optional[datetime]:
+    """Parse an advisory posted_date defensively into a naive UTC datetime.
+
+    Handles ISO strings (with/without tz), a few common date formats, and
+    returns None if unparseable (caller decides how to treat that).
+    """
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        text = str(value).strip()
+        dt = None
+        # Try ISO first (handles trailing Z).
+        try:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d %H:%M:%S"):
+                try:
+                    dt = datetime.strptime(text, fmt)
+                    break
+                except ValueError:
+                    continue
+        if dt is None:
+            return None
+    # Normalize to naive UTC for comparison.
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def is_advisory_current(advisory: dict, now: Optional[datetime] = None) -> bool:
+    """Return True if an advisory is active and posted within the last 7 days.
+
+    Pure function (testable without network). An advisory with an unparseable
+    posted_date is KEPT (logged), since dropping it could hide a real hazard.
+    """
+    status = (advisory.get("status") or "").strip().lower()
+    if status and status != "active":
+        return False
+
+    now = now or datetime.utcnow()
+    posted = _parse_posted_date(advisory.get("posted_date"))
+    if posted is None:
+        # Unparseable/missing posted_date: keep but log.
+        if advisory.get("posted_date"):
+            logger.info(
+                "CWB advisory has unparseable posted_date %r; keeping: %s",
+                advisory.get("posted_date"), advisory.get("beach"),
+            )
+        return True
+
+    return (now - posted) <= timedelta(days=ADVISORY_MAX_AGE_DAYS)
 
 
 class CWBClient:
@@ -279,9 +393,52 @@ class CWBClient:
             reason = (advisory.get("reason") or "").lower()
 
             if island == "oahu" or self._is_oahu_location(beach) or self._is_oahu_location(reason):
-                oahu_advisories.append(advisory)
+                # Single place both site- and coast-matching share: keep only
+                # active advisories posted within the last 7 days.
+                if is_advisory_current(advisory):
+                    oahu_advisories.append(advisory)
 
         return oahu_advisories
+
+    def get_coast_advisories(
+        self, island: str = "Oahu", use_cache: bool = True
+    ) -> dict[str, list]:
+        """Map current active advisories to Oahu coasts by beach name.
+
+        Args:
+            island: Island to filter (only "Oahu" is supported today).
+            use_cache: Whether to use cached data.
+
+        Returns:
+            Dict mapping coast name (south_shore, southeast, windward,
+            north_shore, west_side) to a list of matching advisory dicts.
+            Advisories whose beach name doesn't map to a known coast are
+            excluded (logged at info), not applied island-wide.
+        """
+        if island.lower() != "oahu":
+            return {}
+
+        advisories = self.get_oahu_advisories(use_cache=use_cache)
+
+        coast_map: dict[str, list] = {}
+        for advisory in advisories:
+            beach = (advisory.get("beach") or "").lower()
+            coast = None
+            for keyword, mapped_coast in COAST_KEYWORDS.items():
+                if keyword in beach:
+                    coast = mapped_coast
+                    break
+
+            if coast is None:
+                logger.info(
+                    "CWB advisory beach %r not mapped to a coast; excluding",
+                    advisory.get("beach"),
+                )
+                continue
+
+            coast_map.setdefault(coast, []).append(advisory)
+
+        return coast_map
 
     def check_site_advisory(self, site_name: str, use_cache: bool = True) -> Optional[dict]:
         """Check if a specific dive site has an active advisory.

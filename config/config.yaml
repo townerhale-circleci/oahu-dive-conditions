@@ -22,6 +22,21 @@ scoring:
     low: 5           # <= 5 cfs is clear (score 100)
     high: 50         # >= 50 cfs is high runoff (score 0), linear interpolation between
 
+  # Observed rainfall thresholds (inches in trailing 48h; from IEM ASOS)
+  rainfall_thresholds:
+    none: 0.1        # <= 0.1 in is dry (score 100)
+    heavy: 2.0       # >= 2.0 in is heavy runoff (score 0), linear interpolation between
+
+  # Rain-chance (forecast PoP) — soft visibility penalty only (Plan 3).
+  # A forecast probability, not observed rain, so it never drops below a floor.
+  rain_chance:
+    none: 40         # PoP <= 40% -> no penalty (score 100)
+    floor: 40        # score floor at PoP 100% (never below this)
+
+  # Cap on visibility score when a brown-water advisory is on the site's COAST
+  # but not name-matched to the site (soft, non-gating penalty).
+  coast_brown_water_cap: 40
+
   # Score weights (must sum to 1.0)
   weights:
     wave_power: 0.35

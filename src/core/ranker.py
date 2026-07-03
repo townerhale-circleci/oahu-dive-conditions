@@ -14,6 +14,7 @@ from typing import Optional
 
 from src.clients.buoy_client import BuoyClient, BuoyError
 from src.clients.cwb_client import CWBClient, CWBError
+from src.clients.iem_precip_client import IEMPrecipClient
 from src.clients.noaa_tides_client import NOAATidesClient, NOAATidesError
 from src.clients.nws_client import NWSClient, NWSError
 from src.clients.pacioos_client import PacIOOSClient, PacIOOSError
@@ -52,7 +53,9 @@ class EnvironmentalConditions:
 
     # Visibility/water quality
     stream_discharge_cfs: Optional[float] = None
-    brown_water_advisory: bool = False
+    rainfall_48h_inches: Optional[float] = None  # OBSERVED trailing 48h (IEM ASOS)
+    brown_water_advisory: bool = False  # advisory NAME-matched to this site (gates)
+    coast_brown_water: bool = False  # advisory on this site's coast (soft cap)
     advisory_details: Optional[str] = None
 
     # Weather alerts
@@ -94,6 +97,7 @@ class SiteRanker:
         tides_client: Optional[NOAATidesClient] = None,
         usgs_client: Optional[USGSClient] = None,
         cwb_client: Optional[CWBClient] = None,
+        iem_client: Optional[IEMPrecipClient] = None,
     ):
         """Initialize the ranker with optional dependency injection.
 
@@ -113,11 +117,16 @@ class SiteRanker:
         self.tides = tides_client or NOAATidesClient()
         self.usgs = usgs_client or USGSClient()
         self.cwb = cwb_client or CWBClient()
+        self.iem = iem_client or IEMPrecipClient()
         self.scorer = DiveScorer()
 
         # Cache for shared data (alerts apply to all sites)
         self._marine_alerts_cache: Optional[list] = None
         self._advisories_cache: Optional[list] = None
+        # Coast-level advisory map (beach->coast) and observed 48h rainfall, both
+        # fetched once per coast rather than per site.
+        self._coast_advisories_cache: Optional[dict] = None
+        self._coast_rainfall_cache: dict[str, Optional[float]] = {}
 
     def fetch_conditions_for_site(self, site: DiveSite) -> EnvironmentalConditions:
         """Fetch all environmental conditions for a single site.
@@ -142,10 +151,29 @@ class SiteRanker:
         # Fetch stream discharge for visibility proxy
         self._fetch_discharge_data(site, conditions)
 
+        # Fetch observed 48h rainfall for the site's coast (visibility proxy)
+        self._fetch_rain_data(site, conditions)
+
         # Check for advisories and alerts
         self._fetch_alerts(site, conditions)
 
         return conditions
+
+    def _get_coast_rainfall(self, coast: str) -> Optional[float]:
+        """Observed trailing-48h rainfall (inches) for a coast, cached per coast."""
+        if coast in self._coast_rainfall_cache:
+            return self._coast_rainfall_cache[coast]
+        try:
+            value = self.iem.get_rainfall_48h(coast)
+        except Exception as e:  # noqa: BLE001 - failure -> None (unchanged behavior)
+            logger.warning("IEM rainfall fetch failed for coast %s: %s", coast, e)
+            value = None
+        self._coast_rainfall_cache[coast] = value
+        return value
+
+    def _fetch_rain_data(self, site: DiveSite, conditions: EnvironmentalConditions) -> None:
+        """Fetch observed 48h rainfall for the site's coast (once per coast)."""
+        conditions.rainfall_48h_inches = self._get_coast_rainfall(site.coast)
 
     def _apply_buoy_transform(
         self, site: DiveSite, conditions: EnvironmentalConditions, buoy_data: dict
@@ -288,11 +316,28 @@ class SiteRanker:
                 self._advisories_cache = []
                 conditions.errors.append(f"CWB error: {e}")
 
-        # Check if this site has an advisory
+        # Coast-level advisory map (fetched once, shared across sites)
+        if self._coast_advisories_cache is None:
+            try:
+                self._coast_advisories_cache = self.cwb.get_coast_advisories("Oahu")
+            except CWBError as e:
+                self._coast_advisories_cache = {}
+                conditions.errors.append(f"CWB coast error: {e}")
+
+        # Check if this site has a NAME-matched advisory (safety gate)
         advisory = self.cwb.check_site_advisory(site.name)
         if advisory:
             conditions.brown_water_advisory = True
             conditions.advisory_details = advisory.get("reason")
+
+        # Coast-matched advisory (soft cap, not a gate). Only flag when the site
+        # is not already name-matched (which gates anyway).
+        if not conditions.brown_water_advisory:
+            coast_advisories = (self._coast_advisories_cache or {}).get(site.coast)
+            if coast_advisories:
+                conditions.coast_brown_water = True
+                if not conditions.advisory_details:
+                    conditions.advisory_details = coast_advisories[0].get("reason")
 
     def _wind_dir_to_degrees(self, direction: str) -> Optional[float]:
         """Convert wind direction string to degrees."""
@@ -330,7 +375,9 @@ class SiteRanker:
             wind_speed_mph=conditions.wind_speed_mph,
             wind_direction_deg=conditions.wind_direction_deg,
             stream_discharge_cfs=conditions.stream_discharge_cfs,
+            rainfall_48h_inches=conditions.rainfall_48h_inches,
             brown_water_advisory=conditions.brown_water_advisory,
+            coast_brown_water=conditions.coast_brown_water,
             tide_phase=conditions.tide_phase,
             water_level_ft=conditions.water_level_ft,
             # Score the dive window (07:00 HST today), not wall-clock/fetch time.
@@ -377,6 +424,8 @@ class SiteRanker:
         # Clear caches for fresh data
         self._marine_alerts_cache = None
         self._advisories_cache = None
+        self._coast_advisories_cache = None
+        self._coast_rainfall_cache = {}
 
         # Score all sites
         ranked_sites = []

@@ -1042,9 +1042,12 @@ class DigestGenerator:
                         else:
                             reasons.append(f"{site_rain_chance}% rain chance")
 
-                    # Convert rain mm to inches for scorer's visibility penalty.
-                    # A measured 0.0 mm stays 0.0 in (dry); only missing data → None.
-                    rain_inches = site_rain_mm / 25.4 if site_rain_mm is not None else None
+                    # Visibility uses OBSERVED trailing-48h rainfall for the
+                    # site's coast (from the ranker/IEM), NOT the OWM forecast
+                    # window rain — the RAINFALL_* thresholds assume observed 48h
+                    # totals. The OWM window pop is passed as rain_chance_pct (a
+                    # soft forecast penalty); OWM window mm stays for narrative.
+                    rain_chance_pct = float(site_rain_chance) if site_rain_chance is not None else None
 
                     # Recalculate score with OWM wind (not the stale NWS snapshot)
                     forecast_input = ScoringInput(
@@ -1055,8 +1058,10 @@ class DigestGenerator:
                         tide_phase=cond.tide_phase,
                         water_level_ft=cond.water_level_ft,
                         stream_discharge_cfs=cond.stream_discharge_cfs,
-                        rainfall_48h_inches=rain_inches,
+                        rainfall_48h_inches=cond.rainfall_48h_inches,
+                        rain_chance_pct=rain_chance_pct,
                         brown_water_advisory=cond.brown_water_advisory,
+                        coast_brown_water=cond.coast_brown_water,
                         high_surf_warning=cond.high_surf_warning,
                         high_surf_advisory=cond.high_surf_advisory,
                         # Score the dive window (07:00 HST) for this day.
@@ -1343,9 +1348,11 @@ class DigestGenerator:
                         else:
                             reasons.append(f"{site_rain_chance}% rain chance")
 
-                    # Convert rain mm to inches for scorer's visibility penalty.
-                    # A measured 0.0 mm stays 0.0 in (dry); only missing data → None.
-                    rain_inches = site_rain_mm / 25.4 if site_rain_mm is not None else None
+                    # Observed 48h rainfall is UNKNOWABLE for a future day, so
+                    # rainfall_48h_inches is None here. The OWM window pop is
+                    # passed as rain_chance_pct (soft forecast penalty). The
+                    # coast advisory flag is carried from today's ranked data.
+                    rain_chance_pct = float(site_rain_chance) if site_rain_chance is not None else None
 
                     # Use the actual scorer for consistent grade/score
                     forecast_input = ScoringInput(
@@ -1353,7 +1360,9 @@ class DigestGenerator:
                         raw_wave_height_ft=raw_wave_ht,
                         wave_period_s=wave_period,
                         wind_speed_mph=site_wind,
-                        rainfall_48h_inches=rain_inches,
+                        rainfall_48h_inches=None,
+                        rain_chance_pct=rain_chance_pct,
+                        coast_brown_water=site.conditions.coast_brown_water,
                         # Score the dive window (07:00 HST) for this forecast day.
                         evaluation_time=dive_window_time(forecast_date),
                         site_max_safe_height_ft=site.site.max_safe_wave_height,

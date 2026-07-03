@@ -69,7 +69,14 @@ class ScoringInput:
     # Visibility factors
     rainfall_48h_inches: Optional[float] = None
     stream_discharge_cfs: Optional[float] = None
-    brown_water_advisory: bool = False
+    brown_water_advisory: bool = False  # advisory NAME-matched to this site (safety gate)
+    # Forecast probability of precipitation for the dive window (0-100). This is
+    # a forecast, not an observation, so it only softly reduces the visibility
+    # score (never below a floor) and does NOT count toward data_completeness.
+    rain_chance_pct: Optional[float] = None
+    # Advisory active on this site's COAST but not name-matched to the site.
+    # Caps the visibility score but does not gate (unlike brown_water_advisory).
+    coast_brown_water: bool = False
 
     # Tide
     tide_phase: Optional[str] = None  # "rising", "falling", "high", "low"
@@ -154,6 +161,16 @@ class DiveScorer:
     # Rainfall thresholds (inches in 48h)
     RAINFALL_NONE = 0.1   # Score 100
     RAINFALL_HEAVY = 2.0  # Score 0
+
+    # Rain-chance (forecast PoP) thresholds. A forecast, not an observation, so
+    # it only softly reduces visibility: full score at/below RAIN_CHANCE_NONE,
+    # linear down to RAIN_CHANCE_FLOOR at 100% PoP (never below the floor).
+    RAIN_CHANCE_NONE = 40    # PoP <= 40% -> score 100 (no penalty)
+    RAIN_CHANCE_FLOOR = 40.0  # score floor at PoP 100% (never below this)
+
+    # Cap on the visibility score when a brown-water advisory is active on the
+    # site's COAST but not name-matched to the site (a soft, non-gating penalty).
+    COAST_BROWN_WATER_CAP = 40.0
 
     # Safety gate thresholds
     MAX_WAVE_HEIGHT_FT = 6.0  # Default, can be site-specific (effective surf)
@@ -374,6 +391,8 @@ class DiveScorer:
         rainfall_48h: Optional[float],
         discharge_cfs: Optional[float],
         brown_water_advisory: bool,
+        rain_chance_pct: Optional[float] = None,
+        coast_brown_water: bool = False,
     ) -> float:
         """Score visibility conditions based on runoff indicators.
 
@@ -381,9 +400,14 @@ class DiveScorer:
         for underwater visibility.
 
         Args:
-            rainfall_48h: Rainfall in past 48 hours (inches)
+            rainfall_48h: OBSERVED rainfall in past 48 hours (inches)
             discharge_cfs: Stream discharge (cubic feet per second)
-            brown_water_advisory: Whether BWA is active
+            brown_water_advisory: Whether a site-matched BWA is active
+            rain_chance_pct: Forecast probability of precipitation (0-100) for the
+                dive window. Soft penalty only; never drops the score below
+                RAIN_CHANCE_FLOOR.
+            coast_brown_water: Whether a BWA is active on the site's coast (not
+                name-matched to the site). Caps the returned score.
 
         Returns:
             Score 0-100
@@ -394,7 +418,7 @@ class DiveScorer:
 
         scores = []
 
-        # Rainfall score
+        # Rainfall score (observed 48h totals)
         if rainfall_48h is not None:
             if rainfall_48h <= self.RAINFALL_NONE:
                 scores.append(100.0)
@@ -414,11 +438,33 @@ class DiveScorer:
                 scores.append(100.0 * (self.DISCHARGE_HIGH - discharge_cfs) /
                             (self.DISCHARGE_HIGH - self.DISCHARGE_LOW))
 
-        if not scores:
-            return 70.0  # Assume decent visibility if no data
+        # Rain-chance (forecast PoP) score. Only a soft penalty: full score at
+        # low PoP, linear down to a FLOOR (never below it) because it's a
+        # forecast probability, not observed rain.
+        if rain_chance_pct is not None:
+            if rain_chance_pct <= self.RAIN_CHANCE_NONE:
+                scores.append(100.0)
+            elif rain_chance_pct >= 100:
+                scores.append(self.RAIN_CHANCE_FLOOR)
+            else:
+                scores.append(
+                    100.0 - (100.0 - self.RAIN_CHANCE_FLOOR)
+                    * (rain_chance_pct - self.RAIN_CHANCE_NONE)
+                    / (100.0 - self.RAIN_CHANCE_NONE)
+                )
 
-        # Use minimum score (conservative approach)
-        return min(scores)
+        if not scores:
+            score = 70.0  # Assume decent visibility if no data
+        else:
+            # Use minimum score (conservative approach)
+            score = min(scores)
+
+        # A coast-level advisory (not name-matched to the site) caps visibility
+        # but does not gate: nearby runoff likely, but conditions may be OK.
+        if coast_brown_water:
+            score = min(score, self.COAST_BROWN_WATER_CAP)
+
+        return score
 
     def score_tide(
         self,
@@ -562,6 +608,8 @@ class DiveScorer:
             inputs.rainfall_48h_inches,
             inputs.stream_discharge_cfs,
             inputs.brown_water_advisory,
+            rain_chance_pct=inputs.rain_chance_pct,
+            coast_brown_water=inputs.coast_brown_water,
         )
         tide_score = self.score_tide(
             inputs.tide_phase,
