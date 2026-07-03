@@ -21,6 +21,7 @@ ERDDAP_BASE = "https://pae-paha.pacioos.hawaii.edu/erddap/griddap/swan_oahu"
 CACHE_TTL_SECONDS = 3600  # 1 hour
 REQUEST_TIMEOUT = 10  # Reduced from 30s to fail fast
 CIRCUIT_BREAKER_THRESHOLD = 3  # Open circuit after this many consecutive failures
+CIRCUIT_BREAKER_RESET_SECONDS = 600  # Auto-close (half-open retry) after 10 minutes
 
 # Model domain bounds (approximate)
 LAT_MIN, LAT_MAX = 21.2, 21.75
@@ -30,6 +31,7 @@ LON_MIN, LON_MAX = -158.35, -157.6  # In -180 to 180 format
 _circuit_breaker = {
     "failures": 0,
     "is_open": False,
+    "opened_at": None,  # datetime (UTC) the breaker was opened
 }
 
 
@@ -139,9 +141,20 @@ class PacIOOSClient:
         if not self._is_in_domain(lat, lon):
             return pd.DataFrame(columns=["time", "wave_height_m", "period_s", "direction_deg"])
 
-        # Circuit breaker: skip requests if service is down
+        # Circuit breaker: skip requests if service is down, but auto half-open
+        # after the reset timeout so a transient outage doesn't disable PacIOOS
+        # for the whole process lifetime.
         if _circuit_breaker["is_open"]:
-            return pd.DataFrame(columns=["time", "wave_height_m", "period_s", "direction_deg"])
+            opened_at = _circuit_breaker.get("opened_at")
+            if opened_at is not None and (
+                datetime.utcnow() - opened_at
+            ) >= timedelta(seconds=CIRCUIT_BREAKER_RESET_SECONDS):
+                # Half-open: allow this request through to probe recovery.
+                _circuit_breaker["is_open"] = False
+                _circuit_breaker["failures"] = 0
+                _circuit_breaker["opened_at"] = None
+            else:
+                return pd.DataFrame(columns=["time", "wave_height_m", "period_s", "direction_deg"])
 
         cache_key = self._make_cache_key(lat, lon, hours)
 
@@ -174,11 +187,13 @@ class PacIOOSClient:
             # Success: reset circuit breaker
             _circuit_breaker["failures"] = 0
             _circuit_breaker["is_open"] = False
+            _circuit_breaker["opened_at"] = None
         except requests.RequestException as e:
             # Failure: increment counter and maybe open circuit
             _circuit_breaker["failures"] += 1
             if _circuit_breaker["failures"] >= CIRCUIT_BREAKER_THRESHOLD:
                 _circuit_breaker["is_open"] = True
+                _circuit_breaker["opened_at"] = datetime.utcnow()
             raise PacIOOSError(f"Failed to fetch data from PacIOOS: {e}") from e
 
         # Parse CSV response
@@ -271,7 +286,7 @@ class PacIOOSClient:
         return {
             "time": latest.get("time"),
             "wave_height_m": wave_height_m,
-            "wave_height_ft": wave_height_m * 3.28084 if wave_height_m else None,
+            "wave_height_ft": wave_height_m * 3.28084 if wave_height_m is not None else None,
             "period_s": latest.get("period_s"),
             "direction_deg": latest.get("direction_deg"),
             "in_domain": True,

@@ -71,7 +71,7 @@ class DigestFormatter:
                 if site.is_diveable:
                     grade = site.grade
                     name = self._shorten_name(site.site.name)
-                    wave = f"{site.conditions.wave_height_ft:.0f}ft" if site.conditions.wave_height_ft else "?"
+                    wave = f"{site.conditions.wave_height_ft:.0f}ft" if site.conditions.wave_height_ft is not None else "?"
                     lines.append(f"{i}. {name} ({grade}) {wave}")
 
         # Coast breakdown (optional, for longer SMS)
@@ -225,7 +225,7 @@ class DigestFormatter:
             lines.append("-" * 30)
             for i, site in enumerate(d.top_sites, 1):
                 status = "DIVEABLE" if site.is_diveable else "UNSAFE"
-                wave = f"{site.conditions.wave_height_ft:.1f}ft" if site.conditions.wave_height_ft else "N/A"
+                wave = f"{site.conditions.wave_height_ft:.1f}ft" if site.conditions.wave_height_ft is not None else "N/A"
                 lines.append(f"{i}. {site.site.name}")
                 lines.append(f"   Grade: {site.grade} | {status} | Waves: {wave}")
                 if site.score.warnings:
@@ -385,8 +385,8 @@ class DigestFormatter:
         for i, site in enumerate(sites, 1):
             grade = site.grade
             grade_class = f"grade-{grade}"
-            wave = f"{site.conditions.wave_height_ft:.1f}ft" if site.conditions.wave_height_ft else "N/A"
-            wpi = f"{site.score.wave_power_index:.1f}" if site.score.wave_power_index else "N/A"
+            wave = f"{site.conditions.wave_height_ft:.1f}ft" if site.conditions.wave_height_ft is not None else "N/A"
+            wpi = f"{site.score.wave_power_index:.1f}" if site.score.wave_power_index is not None else "N/A"
             total_score = f"{site.score.total_score:.0f}"
             status = "Diveable" if site.is_diveable else '<span class="unsafe">Unsafe</span>'
 
@@ -547,7 +547,7 @@ class DigestFormatter:
                     wpi_str = f"{beach.wpi:.1f}" if beach.wpi is not None else "-"
 
                     # Wind info - clean format with direction
-                    if beach.wind_speed_mph:
+                    if beach.wind_speed_mph is not None:
                         dir_str = f" {beach.wind_direction}" if beach.wind_direction else ""
                         if beach.wind_type == "offshore":
                             wind_str = f"{beach.wind_speed_mph:.0f}mph{dir_str} ✓"

@@ -20,6 +20,7 @@ from src.clients.pacioos_client import PacIOOSClient, PacIOOSError
 from src.clients.usgs_client import USGSClient, USGSError
 from src.core.scorer import DiveScorer, ScoringInput, ScoringResult
 from src.core.site import DiveSite, SiteDatabase, get_site_database
+from src.utils.timezones import dive_window_time, now_hst
 
 
 logger = logging.getLogger(__name__)
@@ -122,7 +123,7 @@ class SiteRanker:
         Returns:
             EnvironmentalConditions with all available data
         """
-        conditions = EnvironmentalConditions(fetch_time=datetime.now())
+        conditions = EnvironmentalConditions(fetch_time=now_hst())
 
         # Fetch wave data (try buoy first, then PacIOOS model)
         self._fetch_wave_data(site, conditions)
@@ -147,7 +148,7 @@ class SiteRanker:
         if site.nearest_buoy:
             try:
                 buoy_data = self.buoy.get_current_conditions(site.nearest_buoy)
-                if buoy_data.get("wave_height_ft"):
+                if buoy_data.get("wave_height_ft") is not None:
                     conditions.wave_height_ft = buoy_data["wave_height_ft"]
                     conditions.wave_period_s = buoy_data.get("swell_period_s")
                     conditions.swell_direction_deg = buoy_data.get("mean_direction_deg")
@@ -163,7 +164,7 @@ class SiteRanker:
                 site.coordinates.lat,
                 site.coordinates.lon,
             )
-            if pacioos_data.get("wave_height_ft"):
+            if pacioos_data.get("wave_height_ft") is not None:
                 conditions.wave_height_ft = pacioos_data["wave_height_ft"]
                 conditions.wave_period_s = pacioos_data.get("period_s")
                 conditions.swell_direction_deg = pacioos_data.get("direction_deg")
@@ -291,7 +292,8 @@ class SiteRanker:
             brown_water_advisory=conditions.brown_water_advisory,
             tide_phase=conditions.tide_phase,
             water_level_ft=conditions.water_level_ft,
-            evaluation_time=conditions.fetch_time,
+            # Score the dive window (07:00 HST today), not wall-clock/fetch time.
+            evaluation_time=dive_window_time(),
             high_surf_warning=conditions.high_surf_warning,
             high_surf_advisory=conditions.high_surf_advisory,
             site_max_safe_height_ft=site.max_safe_wave_height,

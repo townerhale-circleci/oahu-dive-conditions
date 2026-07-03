@@ -9,8 +9,9 @@ Primary buoys:
 
 import hashlib
 import json
+import logging
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -24,6 +25,9 @@ NDBC_SPEC_URL = "https://www.ndbc.noaa.gov/data/realtime2/{station}.spec"
 NDBC_TXT_URL = "https://www.ndbc.noaa.gov/data/realtime2/{station}.txt"
 
 CACHE_TTL_SECONDS = 600  # 10 minutes for real-time buoy data
+MAX_OBSERVATION_AGE_SECONDS = 3 * 3600  # Reject buoy rows older than 3 hours
+
+logger = logging.getLogger(__name__)
 
 # Oahu buoys with NDBC and CDIP IDs
 OAHU_BUOYS = {
@@ -233,6 +237,23 @@ class BuoyClient:
 
         return records
 
+    def _is_stale(self, time_str: Optional[str]) -> bool:
+        """Return True if an observation timestamp is older than the max age.
+
+        NDBC timestamps are UTC ("...Z"). A row that can't be parsed is treated
+        as stale (unusable) rather than silently accepted.
+        """
+        if not time_str:
+            return True
+        try:
+            obs_time = datetime.fromisoformat(str(time_str).replace("Z", "+00:00"))
+        except ValueError:
+            return True
+        if obs_time.tzinfo is None:
+            obs_time = obs_time.replace(tzinfo=timezone.utc)
+        age = datetime.now(timezone.utc) - obs_time
+        return age > timedelta(seconds=MAX_OBSERVATION_AGE_SECONDS)
+
     def _safe_float(self, value: str) -> Optional[float]:
         """Safely convert to float, returning None for missing values."""
         if value in ("MM", "999", "99.0", "9999", "99.00"):
@@ -324,17 +345,23 @@ class BuoyClient:
             df = self.get_spectral_data(station_id)
             if not df.empty:
                 latest = df.iloc[0]
-                wave_height_m = latest.get("wave_height_m")
-                return {
-                    "time": latest.get("time"),
-                    "wave_height_m": wave_height_m,
-                    "wave_height_ft": wave_height_m * 3.28084 if wave_height_m else None,
-                    "swell_height_m": latest.get("swell_height_m"),
-                    "swell_period_s": latest.get("swell_period_s"),
-                    "swell_direction": latest.get("swell_direction"),
-                    "wind_wave_height_m": latest.get("wind_wave_height_m"),
-                    "mean_direction_deg": latest.get("mean_wave_direction"),
-                }
+                if self._is_stale(latest.get("time")):
+                    logger.warning(
+                        "Buoy %s spectral observation is stale (>3h old): %s",
+                        station_id, latest.get("time"),
+                    )
+                else:
+                    wave_height_m = latest.get("wave_height_m")
+                    return {
+                        "time": latest.get("time"),
+                        "wave_height_m": wave_height_m,
+                        "wave_height_ft": wave_height_m * 3.28084 if wave_height_m is not None else None,
+                        "swell_height_m": latest.get("swell_height_m"),
+                        "swell_period_s": latest.get("swell_period_s"),
+                        "swell_direction": latest.get("swell_direction"),
+                        "wind_wave_height_m": latest.get("wind_wave_height_m"),
+                        "mean_direction_deg": latest.get("mean_wave_direction"),
+                    }
         except BuoyError:
             pass
 
@@ -343,17 +370,23 @@ class BuoyClient:
             df = self.get_standard_data(station_id)
             if not df.empty:
                 latest = df.iloc[0]
-                wave_height_m = latest.get("wave_height_m")
-                return {
-                    "time": latest.get("time"),
-                    "wave_height_m": wave_height_m,
-                    "wave_height_ft": wave_height_m * 3.28084 if wave_height_m else None,
-                    "swell_height_m": None,
-                    "swell_period_s": latest.get("dominant_period_s"),
-                    "swell_direction": None,
-                    "wind_wave_height_m": None,
-                    "mean_direction_deg": latest.get("mean_wave_direction"),
-                }
+                if self._is_stale(latest.get("time")):
+                    logger.warning(
+                        "Buoy %s standard observation is stale (>3h old): %s",
+                        station_id, latest.get("time"),
+                    )
+                else:
+                    wave_height_m = latest.get("wave_height_m")
+                    return {
+                        "time": latest.get("time"),
+                        "wave_height_m": wave_height_m,
+                        "wave_height_ft": wave_height_m * 3.28084 if wave_height_m is not None else None,
+                        "swell_height_m": None,
+                        "swell_period_s": latest.get("dominant_period_s"),
+                        "swell_direction": None,
+                        "wind_wave_height_m": None,
+                        "mean_direction_deg": latest.get("mean_wave_direction"),
+                    }
         except BuoyError:
             pass
 

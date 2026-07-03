@@ -24,6 +24,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
+from src.utils.timezones import HST, now_hst
+
 
 class ScoreGrade(Enum):
     """Letter grade for dive conditions."""
@@ -97,6 +99,9 @@ class ScoringResult:
     # Computed values
     wave_power_index: Optional[float] = None
     wind_type: str = "unknown"  # "offshore", "onshore", "cross-shore", "unknown"
+
+    # Fraction (0.0-1.0) of the 5 core scoring inputs backed by real data.
+    data_completeness: float = 1.0
 
     # Recommendations
     summary: str = ""
@@ -453,7 +458,14 @@ class DiveScorer:
             Score 0-100
         """
         if evaluation_time is None:
-            evaluation_time = datetime.now()
+            # No explicit time: use "now" in Hawaii time, not the process TZ
+            # (which is UTC in CI and would misgrade the dawn dive window).
+            evaluation_time = now_hst()
+
+        # If the caller passed a tz-aware time, convert to HST before reading the
+        # hour so a 15:30 UTC scheduled run is scored as the 05:30 HST dawn window.
+        if evaluation_time.tzinfo is not None:
+            evaluation_time = evaluation_time.astimezone(HST)
 
         hour = evaluation_time.hour
 
@@ -543,6 +555,38 @@ class DiveScorer:
         # Determine grade
         grade = self._score_to_grade(total_score)
 
+        # Assess data completeness across the 5 core scoring inputs. Missing data
+        # is filled with conservative neutral defaults elsewhere, so a sparse
+        # input set can still produce a middling grade that looks trustworthy.
+        # Count how many of the 5 factors are backed by real data.
+        factors_present = 0
+        # 1. Wave (needs both height and period to be meaningful)
+        if inputs.wave_height_ft is not None and inputs.wave_period_s is not None:
+            factors_present += 1
+        # 2. Wind speed
+        if inputs.wind_speed_mph is not None:
+            factors_present += 1
+        # 3. Visibility (rainfall OR discharge)
+        if inputs.rainfall_48h_inches is not None or inputs.stream_discharge_cfs is not None:
+            factors_present += 1
+        # 4. Tide phase. Sites where any tide works ("any") don't need a phase,
+        #    so that factor counts as present.
+        if inputs.tide_phase is not None or inputs.site_optimal_tide == "any":
+            factors_present += 1
+        # 5. Evaluation time
+        if inputs.evaluation_time is not None:
+            factors_present += 1
+
+        data_completeness = factors_present / 5.0
+
+        # Cap the grade (but not the numeric score) when data is too sparse to
+        # trust, and surface why.
+        if data_completeness < 0.6:
+            warnings.append(
+                f"Score based on incomplete data ({factors_present}/5 factors)"
+            )
+            grade = self._cap_grade_at_c(grade)
+
         # Add warnings for concerning conditions
         if inputs.high_surf_warning:
             warnings.append("High Surf Warning in effect for some areas")
@@ -573,9 +617,16 @@ class DiveScorer:
             failed_gates=[],
             wave_power_index=round(wpi, 2) if wpi is not None else None,
             wind_type=wind_type,
+            data_completeness=round(data_completeness, 2),
             summary=summary,
             warnings=warnings,
         )
+
+    def _cap_grade_at_c(self, grade: ScoreGrade) -> ScoreGrade:
+        """Cap a grade at C (FAIR); grades already at/below C are unchanged."""
+        if grade == ScoreGrade.EXCELLENT or grade == ScoreGrade.GOOD:
+            return ScoreGrade.FAIR
+        return grade
 
     def _score_to_grade(self, score: float) -> ScoreGrade:
         """Convert numeric score to letter grade.

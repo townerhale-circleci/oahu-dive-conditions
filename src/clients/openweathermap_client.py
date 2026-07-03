@@ -9,10 +9,9 @@ import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
-from zoneinfo import ZoneInfo
 import requests
 
-HST = ZoneInfo("Pacific/Honolulu")
+from src.utils.timezones import HST, now_hst
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +77,10 @@ class OpenWeatherMapClient:
                            best_hour, conditions
         """
         if not self.api_key:
-            logger.debug("No OpenWeatherMap API key configured")
+            logger.warning(
+                "No OpenWeatherMap API key configured (OPENWEATHERMAP_API_KEY) - "
+                "wind and rain forecasts will be missing from scoring and the report"
+            )
             return {}
 
         # Round coordinates for cache key
@@ -87,7 +89,7 @@ class OpenWeatherMapClient:
         # Check cache
         if cache_key in self._cache:
             cached_time, cached_data = self._cache[cache_key]
-            if datetime.now() - cached_time < timedelta(seconds=self._cache_ttl):
+            if now_hst() - cached_time < timedelta(seconds=self._cache_ttl):
                 return self._extract_for_date(cached_data, target_date)
 
         try:
@@ -104,8 +106,8 @@ class OpenWeatherMapClient:
             response.raise_for_status()
             data = response.json()
 
-            # Cache the full response
-            self._cache[cache_key] = (datetime.now(), data)
+            # Cache the full response (HST-aware timestamp for TTL comparison)
+            self._cache[cache_key] = (now_hst(), data)
 
             return self._extract_for_date(data, target_date)
 
@@ -118,7 +120,7 @@ class OpenWeatherMapClient:
         if not data.get("list"):
             return {}
 
-        target = target_date.date() if target_date else datetime.now().date()
+        target = target_date.date() if target_date else now_hst().date()
 
         # Find forecast entries for the target date
         # OWM returns UTC timestamps — convert to Hawaii time for correct date/hour
@@ -126,12 +128,15 @@ class OpenWeatherMapClient:
         for entry in data["list"]:
             entry_time = datetime.fromtimestamp(entry["dt"], tz=timezone.utc).astimezone(HST)
             if entry_time.date() == target:
+                wind = entry.get("wind", {})
                 day_forecasts.append({
                     "hour": entry_time.hour,
                     "time": entry_time,
-                    "wind_speed_mph": entry.get("wind", {}).get("speed", 0),
-                    "wind_direction_deg": entry.get("wind", {}).get("deg", 0),
-                    "wind_gust_mph": entry.get("wind", {}).get("gust", 0),
+                    # Missing wind must be None (not 0), so absent data doesn't
+                    # masquerade as dead-calm and inflate the wind score.
+                    "wind_speed_mph": wind.get("speed"),
+                    "wind_direction_deg": wind.get("deg"),
+                    "wind_gust_mph": wind.get("gust"),
                     "conditions": entry.get("weather", [{}])[0].get("main", ""),
                     "rain_pop": entry.get("pop", 0),  # 0-1 probability of precipitation
                     "rain_3h_mm": entry.get("rain", {}).get("3h", 0),  # mm in 3h period
@@ -141,13 +146,16 @@ class OpenWeatherMapClient:
             # If no data for target date, return first available
             if data["list"]:
                 entry = data["list"][0]
+                wind = entry.get("wind", {})
                 return {
-                    "wind_speed_mph": entry.get("wind", {}).get("speed", 0),
-                    "wind_direction_deg": entry.get("wind", {}).get("deg", 0),
-                    "wind_gust_mph": entry.get("wind", {}).get("gust", 0),
+                    "wind_speed_mph": wind.get("speed"),
+                    "wind_direction_deg": wind.get("deg"),
+                    "wind_gust_mph": wind.get("gust"),
                     "best_hour": None,
                     "best_time_range": None,
                     "conditions": entry.get("weather", [{}])[0].get("main", ""),
+                    "rain_chance": None,
+                    "rain_amount_mm": None,
                 }
             return {}
 
@@ -156,16 +164,28 @@ class OpenWeatherMapClient:
         if not daylight_forecasts:
             daylight_forecasts = day_forecasts  # Fall back to all hours if none in daylight
 
-        # Find the best time (lowest wind speed, preferring morning 5-9 AM)
-        morning_forecasts = [f for f in daylight_forecasts if 5 <= f["hour"] <= 9]
+        # Find the best time (lowest wind speed, preferring morning 5-9 AM).
+        # Only consider entries that actually have a wind reading.
+        morning_forecasts = [
+            f for f in daylight_forecasts
+            if 5 <= f["hour"] <= 9 and f["wind_speed_mph"] is not None
+        ]
+        daylight_with_wind = [
+            f for f in daylight_forecasts if f["wind_speed_mph"] is not None
+        ]
 
         if morning_forecasts:
             best = min(morning_forecasts, key=lambda x: x["wind_speed_mph"])
+        elif daylight_with_wind:
+            best = min(daylight_with_wind, key=lambda x: x["wind_speed_mph"])
         else:
-            best = min(daylight_forecasts, key=lambda x: x["wind_speed_mph"])
+            best = None
 
-        # Calculate average for the day
-        avg_wind = sum(f["wind_speed_mph"] for f in day_forecasts) / len(day_forecasts)
+        # Calculate day-average wind (over entries that have a reading).
+        wind_values = [
+            f["wind_speed_mph"] for f in day_forecasts if f["wind_speed_mph"] is not None
+        ]
+        avg_wind = sum(wind_values) / len(wind_values) if wind_values else None
 
         # Find best time range (consecutive hours with low wind)
         best_range = self._find_best_time_range(day_forecasts)
@@ -192,13 +212,17 @@ class OpenWeatherMapClient:
         overnight_rain_mm = sum(f["rain_3h_mm"] for f in overnight_forecasts)
 
         return {
-            "wind_speed_mph": best["wind_speed_mph"],
-            "wind_direction_deg": best["wind_direction_deg"],
-            "wind_gust_mph": best.get("wind_gust_mph", 0),
+            # Representative wind for SCORING is the day-average, not the calmest
+            # "best hour" (which would systematically understate wind).
+            "wind_speed_mph": avg_wind,
             "avg_wind_mph": avg_wind,
-            "best_hour": best["hour"],
+            # Calmest daylight hour kept under clearly-named keys for display.
+            "best_hour_wind_mph": best["wind_speed_mph"] if best else None,
+            "wind_direction_deg": best["wind_direction_deg"] if best else None,
+            "wind_gust_mph": best.get("wind_gust_mph") if best else None,
+            "best_hour": best["hour"] if best else None,
             "best_time_range": best_range,
-            "conditions": best["conditions"],
+            "conditions": best["conditions"] if best else "",
             "hourly_data": day_forecasts,
             "rain_chance": rain_chance,
             "rain_amount_mm": rain_amount_mm,
@@ -225,7 +249,8 @@ class OpenWeatherMapClient:
         current_start = None
 
         for f in sorted_forecasts:
-            if f["wind_speed_mph"] < 12:
+            wind = f["wind_speed_mph"]
+            if wind is not None and wind < 12:
                 if current_start is None:
                     current_start = f["hour"]
             else:

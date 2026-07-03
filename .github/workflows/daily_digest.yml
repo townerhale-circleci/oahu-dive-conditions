@@ -41,6 +41,7 @@ jobs:
         timeout-minutes: 5  # Fail if report generation takes longer than 5 minutes
         env:
           OPENWEATHERMAP_API_KEY: ${{ secrets.OPENWEATHERMAP_API_KEY }}
+          TZ: Pacific/Honolulu
         run: |
           python -c "
           from src.digests.daily_digest import generate_daily_digest

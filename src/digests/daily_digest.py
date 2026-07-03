@@ -18,6 +18,7 @@ from src.clients.buoy_client import BuoyClient, OAHU_BUOYS
 from src.clients.nws_client import NWSClient
 from src.clients.pacioos_client import PacIOOSClient
 from src.clients.openweathermap_client import OpenWeatherMapClient
+from src.utils.timezones import dive_window_time
 
 logger = logging.getLogger(__name__)
 
@@ -952,9 +953,10 @@ class DigestGenerator:
                     elif cond.tide_phase:
                         best_time = f"{best_time} ({cond.tide_phase} tide)"
 
-                    # Compute rain for the specific dive window
+                    # Compute rain for the specific dive window. None means "no
+                    # data"; a real 0.0 mm (dry) must still score as 0.0 in.
                     site_rain_chance = None
-                    site_rain_mm = 0
+                    site_rain_mm = None
                     if owm_hourly:
                         win_start, win_end = self._parse_time_range(best_time)
                         site_rain_chance, window_mm, pre_window_mm = (
@@ -1035,8 +1037,9 @@ class DigestGenerator:
                         else:
                             reasons.append(f"{site_rain_chance}% rain chance")
 
-                    # Convert rain mm to inches for scorer's visibility penalty
-                    rain_inches = site_rain_mm / 25.4 if site_rain_mm else None
+                    # Convert rain mm to inches for scorer's visibility penalty.
+                    # A measured 0.0 mm stays 0.0 in (dry); only missing data → None.
+                    rain_inches = site_rain_mm / 25.4 if site_rain_mm is not None else None
 
                     # Recalculate score with OWM wind (not the stale NWS snapshot)
                     forecast_input = ScoringInput(
@@ -1050,6 +1053,8 @@ class DigestGenerator:
                         brown_water_advisory=cond.brown_water_advisory,
                         high_surf_warning=cond.high_surf_warning,
                         high_surf_advisory=cond.high_surf_advisory,
+                        # Score the dive window (07:00 HST) for this day.
+                        evaluation_time=dive_window_time(forecast_date),
                         site_max_safe_height_ft=site.site.max_safe_wave_height,
                         site_swell_exposure_primary=site.site.swell_exposure.primary,
                     )
@@ -1245,9 +1250,10 @@ class DigestGenerator:
                     if not best_time_range:
                         best_time_range = "06:00-10:00 (default)"
 
-                    # Compute rain for the specific dive window
+                    # Compute rain for the specific dive window. None means "no
+                    # data"; a real 0.0 mm (dry) must still score as 0.0 in.
                     site_rain_chance = None
-                    site_rain_mm = 0
+                    site_rain_mm = None
                     if owm_hourly:
                         win_start, win_end = self._parse_time_range(best_time_range)
                         site_rain_chance, window_mm, pre_window_mm = (
@@ -1320,8 +1326,9 @@ class DigestGenerator:
                         else:
                             reasons.append(f"{site_rain_chance}% rain chance")
 
-                    # Convert rain mm to inches for scorer's visibility penalty
-                    rain_inches = site_rain_mm / 25.4 if site_rain_mm else None
+                    # Convert rain mm to inches for scorer's visibility penalty.
+                    # A measured 0.0 mm stays 0.0 in (dry); only missing data → None.
+                    rain_inches = site_rain_mm / 25.4 if site_rain_mm is not None else None
 
                     # Use the actual scorer for consistent grade/score
                     forecast_input = ScoringInput(
@@ -1329,6 +1336,8 @@ class DigestGenerator:
                         wave_period_s=wave_period,
                         wind_speed_mph=site_wind,
                         rainfall_48h_inches=rain_inches,
+                        # Score the dive window (07:00 HST) for this forecast day.
+                        evaluation_time=dive_window_time(forecast_date),
                         site_max_safe_height_ft=site.site.max_safe_wave_height,
                         site_swell_exposure_primary=site.site.swell_exposure.primary,
                     )

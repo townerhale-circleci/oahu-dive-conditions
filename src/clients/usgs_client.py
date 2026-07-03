@@ -6,8 +6,9 @@ High discharge indicates recent rainfall and potential poor water visibility.
 
 import hashlib
 import json
+import logging
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -17,6 +18,9 @@ import requests
 
 USGS_BASE_URL = "https://waterservices.usgs.gov/nwis/iv/"
 CACHE_TTL_SECONDS = 900  # 15 minutes for real-time data
+MAX_READING_AGE_SECONDS = 3 * 3600  # Reject discharge readings older than 3 hours
+
+logger = logging.getLogger(__name__)
 
 # Parameter codes
 PARAM_DISCHARGE = "00060"  # Discharge in cubic feet per second (cfs)
@@ -186,7 +190,34 @@ class USGSClient:
         if df.empty:
             return None
 
-        return df.iloc[-1]["discharge_cfs"]
+        latest = df.iloc[-1]
+
+        # Reject stale readings: a gage that died hours/days ago must not be
+        # treated as "current" (which would silently inflate visibility scores).
+        time_str = latest.get("time")
+        if time_str:
+            try:
+                obs_time = datetime.fromisoformat(str(time_str))
+                if obs_time.tzinfo is None:
+                    obs_time = obs_time.replace(tzinfo=timezone.utc)
+                age = datetime.now(timezone.utc) - obs_time
+                if age > timedelta(seconds=MAX_READING_AGE_SECONDS):
+                    logger.warning(
+                        "USGS site %s reading is stale (>3h old): %s",
+                        site_id, time_str,
+                    )
+                    return None
+            except ValueError:
+                logger.warning(
+                    "USGS site %s reading has unparseable timestamp: %s",
+                    site_id, time_str,
+                )
+                return None
+        else:
+            # No timestamp -> can't verify freshness; treat as unavailable.
+            return None
+
+        return latest["discharge_cfs"]
 
     def get_discharge_level(self, site_id: str) -> dict:
         """Get current discharge and its severity level.

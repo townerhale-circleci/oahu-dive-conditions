@@ -141,7 +141,10 @@ class NOAATidesClient:
             DataFrame with columns: time, water_level_ft, type (H/L for hilo)
         """
         if start_date is None:
-            start_date = datetime.utcnow()
+            # Queries use time_zone=lst_ldt (Hawaii local), so build the date
+            # window from HST-local "now" to avoid a UTC/local mismatch near
+            # HST midnight.
+            start_date = datetime.now(ZoneInfo("Pacific/Honolulu")).replace(tzinfo=None)
         if end_date is None:
             end_date = start_date + timedelta(days=3)
 
@@ -202,7 +205,9 @@ class NOAATidesClient:
         Returns:
             DataFrame with columns: time, water_level_ft
         """
-        end_date = datetime.utcnow()
+        # Queries use time_zone=lst_ldt (Hawaii local), so build the window from
+        # HST-local "now".
+        end_date = datetime.now(ZoneInfo("Pacific/Honolulu")).replace(tzinfo=None)
         start_date = end_date - timedelta(hours=hours)
 
         params = {
@@ -227,9 +232,14 @@ class NOAATidesClient:
 
         records = []
         for obs in data:
+            raw_v = obs.get("v")
+            try:
+                level = float(raw_v) if raw_v not in (None, "") else None
+            except (ValueError, TypeError):
+                level = None
             records.append({
                 "time": obs.get("t"),
-                "water_level_ft": float(obs.get("v", 0)) if obs.get("v") else None,
+                "water_level_ft": level,
             })
 
         if use_cache and records:
