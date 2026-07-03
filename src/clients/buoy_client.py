@@ -73,6 +73,25 @@ OAHU_BUOYS = {
     },
 }
 
+# 16-point compass -> degrees. Kept identical to surf_transform._COMPASS_TO_DEG
+# and the scorer's exposure_map so all three agree on what "NW" means. Defined
+# locally (not imported) to avoid a circular import: src.core.__init__ imports the
+# ranker, which imports this client.
+_COMPASS_TO_DEG = {
+    "N": 0.0, "NNE": 22.5, "NE": 45.0, "ENE": 67.5,
+    "E": 90.0, "ESE": 112.5, "SE": 135.0, "SSE": 157.5,
+    "S": 180.0, "SSW": 202.5, "SW": 225.0, "WSW": 247.5,
+    "W": 270.0, "WNW": 292.5, "NW": 315.0, "NNW": 337.5,
+}
+
+
+def _compass_to_deg(compass: Optional[str]) -> Optional[float]:
+    """Map a 16-point compass string (e.g. 'NW') to degrees, or None."""
+    if compass is None:
+        return None
+    return _COMPASS_TO_DEG.get(compass.strip().upper())
+
+
 # Map swell direction to affected coasts
 SWELL_DIRECTION_MAP = {
     "N": ["north_shore"],
@@ -334,38 +353,27 @@ class BuoyClient:
     def get_current_conditions(self, station_id: str) -> dict:
         """Get current wave and wind conditions from a buoy.
 
+        The STANDARD .txt feed (WVHT + DPD + MWD + APD) is the PRIMARY source of
+        the height/period/direction triple handed to callers. The surf transform's
+        calibration (scripts/hindcast_audit.py) was fit on these standard fields,
+        so DPD (dominant period) is the correct period to pair with WVHT.
+
+        The .spec spectral feed is used only as a FALLBACK when .txt is
+        unavailable or stale. When used, the triple is derived from the DOMINANT
+        component (whichever of swell/wind-wave has the larger height) rather than
+        pairing total WVHT with the swell-component period SwP, which over-shoals
+        a total height that is mostly short-period windswell.
+
         Args:
             station_id: NDBC station ID
 
         Returns:
-            Dict with current conditions
+            Dict with current conditions. `swell_period_s` (read by the ranker) is
+            the dominant/DPD period; `dominant_period_s` is the same value under an
+            honestly-named key.
         """
-        # Try spectral data first for detailed swell info
-        try:
-            df = self.get_spectral_data(station_id)
-            if not df.empty:
-                latest = df.iloc[0]
-                if self._is_stale(latest.get("time")):
-                    logger.warning(
-                        "Buoy %s spectral observation is stale (>3h old): %s",
-                        station_id, latest.get("time"),
-                    )
-                else:
-                    wave_height_m = latest.get("wave_height_m")
-                    return {
-                        "time": latest.get("time"),
-                        "wave_height_m": wave_height_m,
-                        "wave_height_ft": wave_height_m * 3.28084 if wave_height_m is not None else None,
-                        "swell_height_m": latest.get("swell_height_m"),
-                        "swell_period_s": latest.get("swell_period_s"),
-                        "swell_direction": latest.get("swell_direction"),
-                        "wind_wave_height_m": latest.get("wind_wave_height_m"),
-                        "mean_direction_deg": latest.get("mean_wave_direction"),
-                    }
-        except BuoyError:
-            pass
-
-        # Fall back to standard data
+        # PRIMARY: standard .txt data. WVHT paired with DPD and MWD — the exact
+        # triple the surf transform was calibrated against.
         try:
             df = self.get_standard_data(station_id)
             if not df.empty:
@@ -377,15 +385,70 @@ class BuoyClient:
                     )
                 else:
                     wave_height_m = latest.get("wave_height_m")
+                    period_s = latest.get("dominant_period_s")
                     return {
                         "time": latest.get("time"),
                         "wave_height_m": wave_height_m,
                         "wave_height_ft": wave_height_m * 3.28084 if wave_height_m is not None else None,
                         "swell_height_m": None,
-                        "swell_period_s": latest.get("dominant_period_s"),
+                        "dominant_period_s": period_s,
+                        "swell_period_s": period_s,  # alias: kept for ranker compatibility
                         "swell_direction": None,
                         "wind_wave_height_m": None,
                         "mean_direction_deg": latest.get("mean_wave_direction"),
+                        "source": "standard",
+                    }
+        except BuoyError:
+            pass
+
+        # FALLBACK: spectral .spec data. Derive the triple from the DOMINANT
+        # component so we never attach a minor long-period swell's period (SwP)
+        # to the total WVHT.
+        try:
+            df = self.get_spectral_data(station_id)
+            if not df.empty:
+                latest = df.iloc[0]
+                if self._is_stale(latest.get("time")):
+                    logger.warning(
+                        "Buoy %s spectral observation is stale (>3h old): %s",
+                        station_id, latest.get("time"),
+                    )
+                else:
+                    wave_height_m = latest.get("wave_height_m")
+                    swell_h = latest.get("swell_height_m")
+                    wind_h = latest.get("wind_wave_height_m")
+
+                    # Choose the dominant component (larger height). If SwH >= WWH
+                    # use swell period/direction, else wind-wave period/direction.
+                    if swell_h is not None and (wind_h is None or swell_h >= wind_h):
+                        period_s = latest.get("swell_period_s")
+                        dir_compass = latest.get("swell_direction")
+                    elif wind_h is not None:
+                        period_s = latest.get("wind_wave_period_s")
+                        dir_compass = latest.get("wind_wave_direction")
+                    else:
+                        # Neither component height available: fall back to
+                        # average period and the buoy's mean wave direction.
+                        period_s = latest.get("average_period_s")
+                        dir_compass = None
+
+                    # SwD/WWD are compass strings ("NW"); convert to degrees.
+                    dir_deg = _compass_to_deg(dir_compass)
+                    if dir_deg is None:
+                        # Fall back to the spectral MWD (already in degrees).
+                        dir_deg = latest.get("mean_wave_direction")
+
+                    return {
+                        "time": latest.get("time"),
+                        "wave_height_m": wave_height_m,
+                        "wave_height_ft": wave_height_m * 3.28084 if wave_height_m is not None else None,
+                        "swell_height_m": swell_h,
+                        "dominant_period_s": period_s,
+                        "swell_period_s": period_s,  # alias: kept for ranker compatibility
+                        "swell_direction": dir_compass,
+                        "wind_wave_height_m": wind_h,
+                        "mean_direction_deg": dir_deg,
+                        "source": "spectral",
                     }
         except BuoyError:
             pass
@@ -395,10 +458,12 @@ class BuoyClient:
             "wave_height_m": None,
             "wave_height_ft": None,
             "swell_height_m": None,
+            "dominant_period_s": None,
             "swell_period_s": None,
             "swell_direction": None,
             "wind_wave_height_m": None,
             "mean_direction_deg": None,
+            "source": None,
         }
 
     def get_buoy_for_coast(self, coast: str) -> dict:

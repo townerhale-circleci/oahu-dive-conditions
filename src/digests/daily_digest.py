@@ -14,6 +14,7 @@ import pandas as pd
 from src.core.ranker import RankedSite, SiteRanker
 from src.core.scorer import ScoringInput
 from src.core.site import SiteDatabase, get_site_database
+from src.core.surf_transform import effective_surf_height
 from src.clients.buoy_client import BuoyClient, OAHU_BUOYS
 from src.clients.nws_client import NWSClient
 from src.clients.pacioos_client import PacIOOSClient
@@ -666,9 +667,13 @@ class DigestGenerator:
                     conditions = buoy.get_current_conditions(buoy_info["ndbc"])
                     wave_ft = conditions.get("wave_height_ft")
                     if wave_ft is not None:
+                        # Store RAW offshore Hs + period + direction. The
+                        # directional-exposure + shoaling transform is applied
+                        # per-site at consumption using the site's exposure.
                         buoy_wave_fallback[coast_display] = {
                             "wave_ht": wave_ft,
                             "wave_period": conditions.get("swell_period_s"),
+                            "mwd": conditions.get("mean_direction_deg"),
                         }
                 except Exception as e:
                     logger.debug(f"Buoy fallback failed for {coast_display}: {e}")
@@ -1044,6 +1049,7 @@ class DigestGenerator:
                     # Recalculate score with OWM wind (not the stale NWS snapshot)
                     forecast_input = ScoringInput(
                         wave_height_ft=wave_ht,
+                        raw_wave_height_ft=cond.raw_wave_height_ft,
                         wave_period_s=cond.wave_period_s,
                         wind_speed_mph=site_wind,
                         tide_phase=cond.tide_phase,
@@ -1154,15 +1160,26 @@ class DigestGenerator:
                             wave_ht = coast_data["wave_ht"]
                             wave_period = coast_data.get("wave_period")
 
-                    # Final fallback: use NDBC buoy current readings
+                    # Final fallback: use NDBC buoy current readings. These are RAW
+                    # offshore Hs, so apply the directional exposure + shoaling
+                    # transform with THIS site's exposure to get effective surf.
+                    raw_wave_ht = None
                     if wave_ht is None and buoy_wave_fallback:
                         site_coast_display = self.COAST_DISPLAY_NAMES.get(site.site.coast, site.site.coast)
                         buoy_data = buoy_wave_fallback.get(site_coast_display)
                         if buoy_data:
-                            wave_ht = buoy_data["wave_ht"]
+                            raw_wave_ht = buoy_data["wave_ht"]
                             wave_period = buoy_data.get("wave_period")
+                            effective, _applied = effective_surf_height(
+                                raw_hs_ft=raw_wave_ht,
+                                period_s=wave_period,
+                                swell_dir_deg=buoy_data.get("mwd"),
+                                primary_exposure=site.site.swell_exposure.primary,
+                                secondary_exposure=site.site.swell_exposure.secondary,
+                            )
+                            wave_ht = effective
 
-                    # Skip if still no wave data or waves too high
+                    # Skip if still no wave data or effective surf too high
                     if wave_ht is None or wave_ht > 6:
                         continue
 
@@ -1333,6 +1350,7 @@ class DigestGenerator:
                     # Use the actual scorer for consistent grade/score
                     forecast_input = ScoringInput(
                         wave_height_ft=wave_ht,
+                        raw_wave_height_ft=raw_wave_ht,
                         wave_period_s=wave_period,
                         wind_speed_mph=site_wind,
                         rainfall_48h_inches=rain_inches,

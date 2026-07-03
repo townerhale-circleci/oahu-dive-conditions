@@ -127,26 +127,36 @@ def test_fair_conditions():
     """Test scoring for fair dive conditions."""
     scorer = DiveScorer()
 
-    # 2ft @ 8s = WPI of 32, more reasonable for "fair" conditions
+    # New WPI scale (WPI_EXCELLENT=12, WPI_POOR=280) is calibrated for EFFECTIVE
+    # surf height. A moderate 4 ft effective wave at 11 s is WPI 176 -> wave score
+    # ~55 (mid-scale), so the wave component itself now legitimately contributes
+    # to a "fair" rating rather than being maxed or zeroed. Combined with a light
+    # cross/onshore wind, mild rain runoff, and a non-optimal tide, this lands
+    # squarely in the FAIR/POOR band while staying diveable.
     inputs = ScoringInput(
-        wave_height_ft=2.0,
-        wave_period_s=8,
+        wave_height_ft=4.0,      # effective surf at the site
+        wave_period_s=11,        # WPI = 176 -> wave score ~55
         wind_speed_mph=12,
         wind_direction_deg=315,  # NW wind (onshore for NW-facing site)
         rainfall_48h_inches=0.3,
         stream_discharge_cfs=15,
         tide_phase="low",
         site_optimal_tide="high",
-        evaluation_time=datetime(2024, 6, 15, 14, 0),  # 2 PM
-        site_max_safe_height_ft=4,
+        evaluation_time=datetime(2024, 6, 15, 8, 0),  # 8 AM dive window
+        site_max_safe_height_ft=6,
         site_swell_exposure_primary="NW",
     )
 
     result = scorer.calculate_score(inputs)
-    print_result("Fair Conditions (Moderate waves, onshore wind, afternoon)", result)
+    print_result("Fair Conditions (Moderate 4ft surf, onshore wind, mild runoff)", result)
 
     assert result.grade in [ScoreGrade.FAIR, ScoreGrade.POOR], f"Expected FAIR or POOR, got {result.grade}"
     assert result.diveable == True  # Should still be diveable
+    # The wave component should be mid-scale (not maxed, not zeroed) under the
+    # new calibration, so waves genuinely drive part of the "fair" rating.
+    assert 30.0 < result.wave_power_score < 75.0, (
+        f"Expected mid-scale wave score, got {result.wave_power_score}"
+    )
     return True
 
 

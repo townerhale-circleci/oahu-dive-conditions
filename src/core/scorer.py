@@ -5,8 +5,17 @@ Scoring approach:
 - Total score is weighted combination of multiple factors
 - Safety gates can force score to 0 regardless of conditions
 
+Wave height semantics (Plan 4 redesign):
+- `wave_height_ft` is the EFFECTIVE surf height at the site, i.e. the raw
+  offshore buoy Hs after the directional-exposure + shoaling transform in
+  src/core/surf_transform.py (or a PacIOOS near-shore model value, which needs
+  no transform). All scoring and the site safety gate operate on this.
+- `raw_wave_height_ft` is the untransformed offshore significant wave height. It
+  is used ONLY by the absolute backstop gate, so an extreme raw sea state still
+  gates even if the site happens to be shadowed from it.
+
 Scoring Factors (weights):
-- Wave Power: 35% - Lower power = better conditions
+- Wave Power: 35% - Lower power = better conditions (computed on effective height)
 - Wind: 25% - Offshore/calm preferred
 - Visibility Proxy: 20% - Based on rainfall, discharge, advisories
 - Tide: 10% - Site-specific preferences
@@ -14,8 +23,8 @@ Scoring Factors (weights):
 
 Safety Gates (binary rejection):
 - Brown water advisory active
-- Wave height exceeds site threshold (typically >6ft)
-- Wave height exceeds absolute maximum (8ft)
+- Effective surf height exceeds site threshold (typically >6ft)
+- Raw offshore wave height exceeds absolute maximum (10ft) - extreme conditions
 Note: High Surf Warning is NOT a safety gate - it's island-wide and informational only.
 """
 
@@ -48,7 +57,8 @@ class SafetyGate:
 class ScoringInput:
     """Input data for scoring a dive site."""
     # Wave conditions
-    wave_height_ft: Optional[float] = None
+    wave_height_ft: Optional[float] = None  # EFFECTIVE surf height at the site
+    raw_wave_height_ft: Optional[float] = None  # raw offshore Hs (backstop gate only)
     wave_period_s: Optional[float] = None
     swell_direction_deg: Optional[float] = None
 
@@ -122,9 +132,15 @@ class DiveScorer:
     WEIGHT_TIDE = 0.10
     WEIGHT_TIME = 0.10
 
-    # Wave Power Index thresholds
-    WPI_EXCELLENT = 5    # Score 100
-    WPI_POOR = 50        # Score 0
+    # Wave Power Index thresholds (calibrated for EFFECTIVE surf height, Plan 4).
+    # WPI = effective_height_ft^2 * dominant_period_s. On effective heights with
+    # real dominant periods the range is much wider than the old offshore world:
+    # a modest 3.7 ft effective wave at 15 s is WPI ~210 yet is a legitimate ~C
+    # dive day (NWS "West 4 ft"), so WPI_POOR=120 zeroed genuinely diveable
+    # long-period conditions. Widened to 280 so long-period moderate swell grades
+    # C/D rather than F (starting points were 12/120; see hindcast_audit.py).
+    WPI_EXCELLENT = 12   # Score 100
+    WPI_POOR = 280       # Score 0
 
     # Wind thresholds (mph)
     WIND_CALM = 5        # Score 100
@@ -140,8 +156,11 @@ class DiveScorer:
     RAINFALL_HEAVY = 2.0  # Score 0
 
     # Safety gate thresholds
-    MAX_WAVE_HEIGHT_FT = 6.0  # Default, can be site-specific
-    ABSOLUTE_MAX_WAVE_HEIGHT_FT = 8.0  # Hard ceiling regardless of site config
+    MAX_WAVE_HEIGHT_FT = 6.0  # Default, can be site-specific (effective surf)
+    # Hard ceiling on RAW offshore Hs regardless of site config. Raised from 8 to
+    # 10 ft because 8 ft raw offshore Hs occurs in ordinary trade windswell and
+    # is not itself extreme; 10 ft raw Hs indicates genuinely extreme seas.
+    ABSOLUTE_MAX_WAVE_HEIGHT_FT = 10.0
 
     def __init__(self):
         """Initialize the scorer."""
@@ -191,21 +210,28 @@ class DiveScorer:
                 gate_name="brown_water_advisory",
             ))
 
-        # Gate 2: Wave height exceeds site threshold
+        # Gate 2: Effective surf height exceeds site threshold
         max_height = inputs.site_max_safe_height_ft if inputs.site_max_safe_height_ft is not None else self.MAX_WAVE_HEIGHT_FT
         if inputs.wave_height_ft is not None and inputs.wave_height_ft > max_height:
             failed_gates.append(SafetyGate(
                 passed=False,
-                reason=f"Wave height ({inputs.wave_height_ft:.1f}ft) exceeds safe threshold ({max_height}ft)",
+                reason=f"Effective surf ({inputs.wave_height_ft:.1f}ft) exceeds safe threshold ({max_height}ft)",
                 gate_name="wave_height_exceeded",
             ))
 
-        # Gate 3: Absolute wave height ceiling (regardless of site config)
-        if inputs.wave_height_ft is not None and inputs.wave_height_ft > self.ABSOLUTE_MAX_WAVE_HEIGHT_FT:
+        # Gate 3: Absolute ceiling on RAW offshore Hs (regardless of site config).
+        # Uses the untransformed offshore height so genuinely extreme seas gate a
+        # site even if it is directionally shadowed from them.
+        backstop_height = (
+            inputs.raw_wave_height_ft
+            if inputs.raw_wave_height_ft is not None
+            else inputs.wave_height_ft
+        )
+        if backstop_height is not None and backstop_height > self.ABSOLUTE_MAX_WAVE_HEIGHT_FT:
             if not any(g.gate_name == "wave_height_exceeded" for g in failed_gates):
                 failed_gates.append(SafetyGate(
                     passed=False,
-                    reason=f"Wave height ({inputs.wave_height_ft:.1f}ft) exceeds absolute maximum ({self.ABSOLUTE_MAX_WAVE_HEIGHT_FT}ft)",
+                    reason=f"Offshore wave height ({backstop_height:.1f}ft) exceeds absolute maximum ({self.ABSOLUTE_MAX_WAVE_HEIGHT_FT}ft) - extreme conditions",
                     gate_name="wave_height_exceeded",
                 ))
 
@@ -213,10 +239,10 @@ class DiveScorer:
         return all_passed, failed_gates
 
     def score_wave_power(self, wpi: Optional[float]) -> float:
-        """Score based on Wave Power Index.
+        """Score based on Wave Power Index (computed on effective surf height).
 
-        100 points if WPI < 5
-        Linear decline to 0 at WPI >= 50
+        100 points if WPI <= WPI_EXCELLENT
+        Linear decline to 0 at WPI >= WPI_POOR
 
         Args:
             wpi: Wave Power Index

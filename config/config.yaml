@@ -5,10 +5,11 @@
 # NOTE: These values must match the constants in src/core/scorer.py.
 # The scorer uses hardcoded constants for performance. Update both places.
 scoring:
-  # Wave Power Index thresholds (height² × period)
+  # Wave Power Index thresholds (effective_height² × period).
+  # Calibrated for EFFECTIVE surf height (Plan 4), not raw offshore Hs.
   wpi_thresholds:
-    excellent: 5     # WPI <= 5 is excellent (score 100)
-    poor: 50         # WPI >= 50 is poor (score 0), linear interpolation between
+    excellent: 12    # WPI <= 12 is excellent (score 100)
+    poor: 280        # WPI >= 280 is poor (score 0), linear interpolation between
 
   # Wind speed thresholds (mph)
   wind_thresholds:
@@ -39,15 +40,20 @@ scoring:
 
 # Safety gates - conditions that result in automatic "unsafe" rating
 safety:
-  # Absolute wave height limit regardless of site threshold (ft)
-  absolute_max_wave_height: 8.0
+  # Absolute limit on RAW offshore Hs regardless of site threshold (ft).
+  # Raised from 8 to 10: 8 ft raw offshore Hs occurs in ordinary trade windswell
+  # and is not itself extreme; 10 ft raw Hs indicates genuinely extreme seas.
+  # Site-level safety uses EFFECTIVE surf height against max_safe_height_ft.
+  absolute_max_wave_height: 10.0
 
   # Default site max if not specified (ft)
   default_max_safe_wave_height: 6.0
 
-  # Gates that trigger unsafe rating
+  # Gates that trigger unsafe rating.
   # NOTE: High Surf Warning is intentionally NOT a safety gate - it's island-wide
-  # and may not apply to all coasts. Sites are evaluated by actual local wave height.
+  # and may not apply to all coasts. Sites are evaluated by EFFECTIVE surf height
+  # (offshore Hs after the directional-exposure + shoaling transform) against
+  # max_safe_height_ft; the absolute ceiling above applies to RAW offshore Hs.
   gates:
     - brown_water_advisory
     - wave_height_exceeded

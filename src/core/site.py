@@ -84,6 +84,7 @@ class DiveSite:
     optimal_tide: str  # any, high, low
     optimal_time: str  # morning, any
     nearest_buoy: Optional[str] = None
+    fallback_buoy: Optional[str] = None  # tried if nearest_buoy errors (e.g. offline 51207)
     nearest_streamgage: Optional[str] = None
     notes: str = ""
 
@@ -200,6 +201,7 @@ class SiteDatabase:
             optimal_tide=data.get("optimal_tide", "any"),
             optimal_time=data.get("optimal_time", "morning"),
             nearest_buoy=data.get("nearest_buoy"),
+            fallback_buoy=data.get("fallback_buoy"),
             nearest_streamgage=data.get("nearest_streamgage"),
             notes=data.get("notes", ""),
         )

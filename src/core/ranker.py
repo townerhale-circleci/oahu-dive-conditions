@@ -20,6 +20,7 @@ from src.clients.pacioos_client import PacIOOSClient, PacIOOSError
 from src.clients.usgs_client import USGSClient, USGSError
 from src.core.scorer import DiveScorer, ScoringInput, ScoringResult
 from src.core.site import DiveSite, SiteDatabase, get_site_database
+from src.core.surf_transform import effective_surf_height
 from src.utils.timezones import dive_window_time, now_hst
 
 
@@ -29,8 +30,12 @@ logger = logging.getLogger(__name__)
 @dataclass
 class EnvironmentalConditions:
     """Environmental conditions for a location."""
-    # Wave data
+    # Wave data. wave_height_ft is the EFFECTIVE surf height at the site (after
+    # the directional-exposure + shoaling transform for buoy sources); the raw
+    # offshore Hs is retained separately for the absolute backstop gate.
     wave_height_ft: Optional[float] = None
+    raw_wave_height_ft: Optional[float] = None
+    wave_transform_applied: bool = False
     wave_period_s: Optional[float] = None
     swell_direction_deg: Optional[float] = None
     wave_source: str = ""  # "buoy", "pacioos", "none"
@@ -142,23 +147,56 @@ class SiteRanker:
 
         return conditions
 
+    def _apply_buoy_transform(
+        self, site: DiveSite, conditions: EnvironmentalConditions, buoy_data: dict
+    ) -> None:
+        """Store buoy wave data with the directional-exposure + shoaling transform.
+
+        wave_height_ft becomes the EFFECTIVE surf height at the site; the raw
+        offshore Hs is kept in raw_wave_height_ft for the absolute backstop gate.
+        """
+        raw = buoy_data["wave_height_ft"]
+        period = buoy_data.get("swell_period_s")
+        mwd = buoy_data.get("mean_direction_deg")
+
+        effective, applied = effective_surf_height(
+            raw_hs_ft=raw,
+            period_s=period,
+            swell_dir_deg=mwd,
+            primary_exposure=site.swell_exposure.primary,
+            secondary_exposure=site.swell_exposure.secondary,
+        )
+
+        conditions.wave_height_ft = effective
+        conditions.raw_wave_height_ft = raw
+        conditions.wave_transform_applied = applied
+        conditions.wave_period_s = period
+        conditions.swell_direction_deg = mwd
+        conditions.wave_source = "buoy"
+
     def _fetch_wave_data(self, site: DiveSite, conditions: EnvironmentalConditions) -> None:
-        """Fetch wave data from buoy or PacIOOS model."""
-        # Try buoy first (real observations)
-        if site.nearest_buoy:
+        """Fetch wave data from buoy or PacIOOS model.
+
+        Buoy readings are raw offshore Hs and are passed through the directional
+        exposure + shoaling transform (surf_transform.py) to yield the effective
+        surf height at the site. PacIOOS SWAN values are already near-shore and
+        are stored as-is (factor 1.0).
+        """
+        # Try buoy first (real observations). On a buoy error, fall back to the
+        # site's fallback_buoy (used where nearest_buoy is offline, e.g. 51207)
+        # before dropping to PacIOOS.
+        buoy_candidates = [b for b in (site.nearest_buoy, site.fallback_buoy) if b]
+        for buoy_id in buoy_candidates:
             try:
-                buoy_data = self.buoy.get_current_conditions(site.nearest_buoy)
+                buoy_data = self.buoy.get_current_conditions(buoy_id)
                 if buoy_data.get("wave_height_ft") is not None:
-                    conditions.wave_height_ft = buoy_data["wave_height_ft"]
-                    conditions.wave_period_s = buoy_data.get("swell_period_s")
-                    conditions.swell_direction_deg = buoy_data.get("mean_direction_deg")
-                    conditions.wave_source = "buoy"
+                    self._apply_buoy_transform(site, conditions, buoy_data)
                     return
             except BuoyError as e:
-                conditions.errors.append(f"Buoy error: {e}")
-                logger.warning(f"Buoy fetch failed for {site.id}: {e}")
+                conditions.errors.append(f"Buoy error ({buoy_id}): {e}")
+                logger.warning(f"Buoy fetch failed for {site.id} ({buoy_id}): {e}")
 
-        # Fall back to PacIOOS SWAN model
+        # Fall back to PacIOOS SWAN model (near-shore; no transform, factor 1.0).
         try:
             pacioos_data = self.pacioos.get_current_conditions(
                 site.coordinates.lat,
@@ -166,6 +204,8 @@ class SiteRanker:
             )
             if pacioos_data.get("wave_height_ft") is not None:
                 conditions.wave_height_ft = pacioos_data["wave_height_ft"]
+                conditions.raw_wave_height_ft = pacioos_data["wave_height_ft"]
+                conditions.wave_transform_applied = False
                 conditions.wave_period_s = pacioos_data.get("period_s")
                 conditions.swell_direction_deg = pacioos_data.get("direction_deg")
                 conditions.wave_source = "pacioos"
@@ -284,6 +324,7 @@ class SiteRanker:
         # Build scoring input from conditions and site data
         scoring_input = ScoringInput(
             wave_height_ft=conditions.wave_height_ft,
+            raw_wave_height_ft=conditions.raw_wave_height_ft,
             wave_period_s=conditions.wave_period_s,
             swell_direction_deg=conditions.swell_direction_deg,
             wind_speed_mph=conditions.wind_speed_mph,

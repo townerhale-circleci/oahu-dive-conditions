@@ -570,7 +570,7 @@ south_shore:
       optimal_tide: high
       optimal_time: morning
       nearest_buoy: "51211"
-      nearest_streamgage: "16240500"
+      nearest_streamgage: null
       notes: "State park with entry fee and mandatory video. Closed Tuesdays. Very crowded."
 
     - name: "China Walls / Spitting Caves"
@@ -851,8 +851,8 @@ southeast:
         max_safe_height_ft: 2
       optimal_tide: high
       optimal_time: morning
-      nearest_buoy: "51202"
-      nearest_streamgage: "16240500"
+      nearest_buoy: "51211"
+      nearest_streamgage: null
       notes: "Dangerous shorebreak - experts only. Very narrow calm windows."
 
     - name: "Halona Blowhole Cove"
@@ -878,8 +878,8 @@ southeast:
         max_safe_height_ft: 2
       optimal_tide: high
       optimal_time: morning
-      nearest_buoy: "51202"
-      nearest_streamgage: "16240500"
+      nearest_buoy: "51211"
+      nearest_streamgage: null
       notes: "Tricky entry and exit. Only on very calm days."
 
     - name: "Makapuu Beach"
@@ -906,7 +906,7 @@ southeast:
       optimal_tide: high
       optimal_time: morning
       nearest_buoy: "51202"
-      nearest_streamgage: "16240500"
+      nearest_streamgage: null
       notes: "Strong currents (Molokai Express). Good Uhu (parrotfish). Rarely calm enough."
 
     - name: "Makapuu Tidepools"
@@ -933,7 +933,7 @@ southeast:
       optimal_tide: low
       optimal_time: morning
       nearest_buoy: "51202"
-      nearest_streamgage: "16240500"
+      nearest_streamgage: null
       notes: "Shore access to tidepools. Best at low tide for exploring."
 
     - name: "Makai Research Pier"
@@ -960,7 +960,7 @@ southeast:
       optimal_tide: any
       optimal_time: morning
       nearest_buoy: "51202"
-      nearest_streamgage: "16240500"
+      nearest_streamgage: null
       notes: "Hidden gem with good visibility. Year-round potential in calm conditions."
 
     - name: "Alan Davis Beach"
@@ -986,8 +986,8 @@ southeast:
         max_safe_height_ft: 3
       optimal_tide: high
       optimal_time: morning
-      nearest_buoy: "51202"
-      nearest_streamgage: "16240500"
+      nearest_buoy: "51211"
+      nearest_streamgage: null
       notes: "Near Sandy Beach. Calmer than Sandy but still needs low swell."
 
 # =============================================================================
@@ -1187,6 +1187,7 @@ windward:
       optimal_tide: any
       optimal_time: morning
       nearest_buoy: "51207"
+      fallback_buoy: "51202"
       nearest_streamgage: "16247100"
       notes: "Protected bay but visibility often poor after rain. Check stream levels."
 
@@ -1214,6 +1215,7 @@ windward:
       optimal_tide: any
       optimal_time: any
       nearest_buoy: "51207"
+      fallback_buoy: "51202"
       nearest_streamgage: "16247100"
       notes: "UH Hawaii Institute of Marine Biology. Very protected, limited access."
 
@@ -1241,6 +1243,7 @@ windward:
       optimal_tide: any
       optimal_time: any
       nearest_buoy: "51207"
+      fallback_buoy: "51202"
       nearest_streamgage: "16247100"
       notes: "Protected pier area. No spearfishing - hook and line only."
 
@@ -1349,7 +1352,7 @@ windward:
       optimal_tide: high
       optimal_time: morning
       nearest_buoy: "51202"
-      nearest_streamgage: "16275000"
+      nearest_streamgage: null
       notes: "Exposed point with currents. Summer light wind days only."
 
     - name: "Goat Island (Mokuauia)"
@@ -1376,5 +1379,5 @@ windward:
       optimal_tide: low
       optimal_time: morning
       nearest_buoy: "51202"
-      nearest_streamgage: "16275000"
+      nearest_streamgage: null
       notes: "Wade or swim access at low tide. Summer calm conditions best."
