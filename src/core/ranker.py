@@ -17,9 +17,11 @@ from src.clients.cwb_client import CWBClient, CWBError
 from src.clients.iem_precip_client import IEMPrecipClient
 from src.clients.noaa_tides_client import NOAATidesClient, NOAATidesError
 from src.clients.nws_client import NWSClient, NWSError
+from src.clients.openweathermap_client import OpenWeatherMapClient
 from src.clients.pacioos_client import PacIOOSClient, PacIOOSError
 from src.clients.usgs_client import USGSClient, USGSError
-from src.core.scorer import DiveScorer, ScoringInput, ScoringResult
+from src.core.scorer import DiveScorer, ScoringResult
+from src.core.scoring_input import build_scoring_input
 from src.core.site import DiveSite, SiteDatabase, get_site_database
 from src.core.surf_transform import effective_surf_height
 from src.utils.timezones import dive_window_time, now_hst
@@ -54,6 +56,7 @@ class EnvironmentalConditions:
     # Visibility/water quality
     stream_discharge_cfs: Optional[float] = None
     rainfall_48h_inches: Optional[float] = None  # OBSERVED trailing 48h (IEM ASOS)
+    rain_chance_pct: Optional[float] = None  # OWM forecast PoP for the dive window (soft penalty)
     brown_water_advisory: bool = False  # advisory NAME-matched to this site (gates)
     coast_brown_water: bool = False  # advisory on this site's coast (soft cap)
     advisory_details: Optional[str] = None
@@ -98,6 +101,7 @@ class SiteRanker:
         usgs_client: Optional[USGSClient] = None,
         cwb_client: Optional[CWBClient] = None,
         iem_client: Optional[IEMPrecipClient] = None,
+        owm_client: Optional[OpenWeatherMapClient] = None,
     ):
         """Initialize the ranker with optional dependency injection.
 
@@ -118,6 +122,12 @@ class SiteRanker:
         self.usgs = usgs_client or USGSClient()
         self.cwb = cwb_client or CWBClient()
         self.iem = iem_client or IEMPrecipClient()
+        # OWM provides the representative dive-window wind (day-average over the
+        # daylight window) used for SCORING — the headline path must match the
+        # Today table, which also uses OWM. NWS is the fallback (dawn snapshot)
+        # when no OWM key is configured. Shared client so a site fetched here
+        # isn't re-fetched by the digest (OWM caches per rounded lat/lon).
+        self.owm = owm_client or OpenWeatherMapClient()
         self.scorer = DiveScorer()
 
         # Cache for shared data (alerts apply to all sites)
@@ -242,7 +252,43 @@ class SiteRanker:
             logger.warning(f"PacIOOS fetch failed for {site.id}: {e}")
 
     def _fetch_weather_data(self, site: DiveSite, conditions: EnvironmentalConditions) -> None:
-        """Fetch weather/wind data from NWS."""
+        """Fetch representative dive-window wind for the site.
+
+        SCORING wind is the OWM day-average wind over the daylight window (the
+        same value the Today digest table uses), NOT the NWS dawn snapshot which
+        only reflects the wind at report-generation time (often calm at 5 AM) and
+        made the headline "Top Sites" grade disagree with the Today table.
+
+        NWS is the fallback when OWM returns nothing (e.g. no API key). We also
+        capture the OWM window rain-chance so the digest can reuse it without a
+        second fetch (the OWM client caches per rounded lat/lon regardless).
+        """
+        used_owm = False
+        try:
+            wind_data = self.owm.get_wind_forecast(
+                site.coordinates.lat,
+                site.coordinates.lon,
+                # Score today's dive window; dive_window_time() is HST-pinned.
+                dive_window_time(),
+            )
+            if wind_data:
+                owm_wind = wind_data.get("wind_speed_mph")  # day-average, may be None
+                if owm_wind is not None:
+                    conditions.wind_speed_mph = owm_wind
+                    used_owm = True
+                    wind_dir_deg = wind_data.get("wind_direction_deg")
+                    if wind_dir_deg is not None:
+                        conditions.wind_direction_deg = wind_dir_deg
+                rain_chance = wind_data.get("rain_chance")
+                if rain_chance is not None:
+                    conditions.rain_chance_pct = float(rain_chance)
+        except Exception as e:  # noqa: BLE001 - any OWM failure -> NWS fallback
+            logger.debug(f"OWM wind fetch failed for {site.id}: {e}")
+
+        if used_owm:
+            return
+
+        # Fallback: NWS forecast summary (dawn snapshot).
         try:
             forecast = self.nws.get_forecast_summary(
                 site.coordinates.lat,
@@ -366,8 +412,10 @@ class SiteRanker:
         if conditions is None:
             conditions = self.fetch_conditions_for_site(site)
 
-        # Build scoring input from conditions and site data
-        scoring_input = ScoringInput(
+        # Build scoring input from conditions and site data via the single
+        # shared assembler (Plan 5) so the headline path matches the digest.
+        scoring_input = build_scoring_input(
+            site,
             wave_height_ft=conditions.wave_height_ft,
             raw_wave_height_ft=conditions.raw_wave_height_ft,
             wave_period_s=conditions.wave_period_s,
@@ -376,6 +424,7 @@ class SiteRanker:
             wind_direction_deg=conditions.wind_direction_deg,
             stream_discharge_cfs=conditions.stream_discharge_cfs,
             rainfall_48h_inches=conditions.rainfall_48h_inches,
+            rain_chance_pct=conditions.rain_chance_pct,
             brown_water_advisory=conditions.brown_water_advisory,
             coast_brown_water=conditions.coast_brown_water,
             tide_phase=conditions.tide_phase,
@@ -384,9 +433,6 @@ class SiteRanker:
             evaluation_time=dive_window_time(),
             high_surf_warning=conditions.high_surf_warning,
             high_surf_advisory=conditions.high_surf_advisory,
-            site_max_safe_height_ft=site.max_safe_wave_height,
-            site_optimal_tide=site.optimal_tide,
-            site_swell_exposure_primary=site.swell_exposure.primary,
         )
 
         score = self.scorer.calculate_score(scoring_input)

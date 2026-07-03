@@ -39,6 +39,20 @@ def approx(a, b, tol=1e-6):
     return abs(a - b) <= tol
 
 
+def _fresh_prefix():
+    """A 'YYYY MM DD hh mm' NDBC row prefix ~30 min ago in HST.
+
+    The buoy client rejects rows older than 3h (Plan 1 staleness guard), so the
+    fixtures must be dated recently or the parse yields None. NDBC row digits are
+    interpreted as UTC by the parser, so build the prefix from UTC now (not HST)
+    and back off 30 min. Generating it dynamically keeps these tests from rotting
+    as the clock advances.
+    """
+    from datetime import datetime, timedelta, timezone
+    t = datetime.now(timezone.utc) - timedelta(minutes=30)
+    return f"{t.year} {t.month:02d} {t.day:02d} {t.hour:02d} {t.minute:02d}"
+
+
 def test_compass_parsing():
     print("\n[compass parsing]")
     check("N -> 0", _compass_to_deg("N") == 0.0)
@@ -187,15 +201,16 @@ def test_buoy_txt_primary_pairing():
 
     # Standard .txt: WVHT=1.4m, DPD=8s, APD=5.4, MWD=40. .spec has a minor 0.2m
     # long-period (13.3s) component whose SwP must NOT be attached to total WVHT.
+    p = _fresh_prefix()
     txt = (
         "#YY  MM DD hh mm WDIR WSPD GST  WVHT   DPD   APD MWD   PRES  ATMP  WTMP  DEWP  VIS PTDY  TIDE\n"
         "#yr  mo dy hr mn degT m/s  m/s     m   sec   sec degT   hPa  degC  degC  degC  nmi  hPa    ft\n"
-        "2026 07 03 00 26  MM   MM   MM   1.4     8   5.4  40     MM    MM  26.2    MM   MM   MM    MM\n"
+        f"{p}  MM   MM   MM   1.4     8   5.4  40     MM    MM  26.2    MM   MM   MM    MM\n"
     )
     spec = (
         "#YY  MM DD hh mm WVHT  SwH  SwP  WWH  WWP SwD WWD  STEEPNESS  APD MWD\n"
         "#yr  mo dy hr mn    m    m  sec    m  sec  -  degT     -      sec degT\n"
-        "2026 07 03 00 56  1.4  0.2 13.3  1.4  8.3 WNW  NE    AVERAGE  5.2  44\n"
+        f"{p}  1.4  0.2 13.3  1.4  8.3 WNW  NE    AVERAGE  5.2  44\n"
     )
     c = BuoyClient()
     # Monkeypatch the two fetchers to return parsed dataframes from fixtures.
@@ -220,10 +235,11 @@ def test_buoy_spec_fallback_dominant_component():
     # No .txt available -> fall back to .spec. Wind wave (WWH=1.4) dominates the
     # swell component (SwH=0.2), so the triple must use WWP(8.3s) + WWD(NE=45),
     # NOT SwP(13.3s)/SwD(WNW). Total WVHT stays 1.4m.
+    p = _fresh_prefix()
     spec = (
         "#YY  MM DD hh mm WVHT  SwH  SwP  WWH  WWP SwD WWD  STEEPNESS  APD MWD\n"
         "#yr  mo dy hr mn    m    m  sec    m  sec  -  degT     -      sec degT\n"
-        "2026 07 03 00 56  1.4  0.2 13.3  1.4  8.3 WNW  NE    AVERAGE  5.2  44\n"
+        f"{p}  1.4  0.2 13.3  1.4  8.3 WNW  NE    AVERAGE  5.2  44\n"
     )
     c = BuoyClient()
     c.get_standard_data = lambda sid, use_cache=True: pd.DataFrame()  # unavailable
@@ -238,7 +254,7 @@ def test_buoy_spec_fallback_dominant_component():
     spec2 = (
         "#YY  MM DD hh mm WVHT  SwH  SwP  WWH  WWP SwD WWD  STEEPNESS  APD MWD\n"
         "#yr  mo dy hr mn    m    m  sec    m  sec  -  degT     -      sec degT\n"
-        "2026 07 03 00 56  1.5  1.5   14  0.3  6.0 NW  NE    AVERAGE  9.0  310\n"
+        f"{p}  1.5  1.5   14  0.3  6.0 NW  NE    AVERAGE  9.0  310\n"
     )
     c.get_spectral_data = lambda sid, use_cache=True: pd.DataFrame(c._parse_ndbc_spectral(spec2))
     out2 = c.get_current_conditions("51201")

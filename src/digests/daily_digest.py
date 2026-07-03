@@ -12,14 +12,13 @@ from typing import Optional
 import pandas as pd
 
 from src.core.ranker import RankedSite, SiteRanker
-from src.core.scorer import ScoringInput
+from src.core.scoring_input import build_scoring_input
 from src.core.site import SiteDatabase, get_site_database
 from src.core.surf_transform import effective_surf_height
 from src.clients.buoy_client import BuoyClient, OAHU_BUOYS
 from src.clients.nws_client import NWSClient
 from src.clients.pacioos_client import PacIOOSClient
-from src.clients.openweathermap_client import OpenWeatherMapClient
-from src.utils.timezones import dive_window_time
+from src.utils.timezones import dive_window_time, now_hst
 
 logger = logging.getLogger(__name__)
 
@@ -201,6 +200,19 @@ class DigestGenerator:
         "south_shore": "South Shore",
         "southeast": "Southeast",
         "windward": "Windward",
+    }
+
+    # Buoy "location" labels (OAHU_BUOYS[...]["location"]) don't match the coast
+    # display names used by the wave-forecast reference points and coast
+    # summaries. Normalize them to the canonical display names so the per-day
+    # coast_outlooks keys are consistent across the today-buoy path, the
+    # PacIOOS-forecast path, and the coast summaries.
+    BUOY_LOCATION_TO_DISPLAY = {
+        "North Shore": "North Shore",
+        "Windward/East": "Windward",
+        "Windward": "Windward",
+        "South/West": "South Shore",
+        "South": "South Shore",
     }
 
     def __init__(
@@ -685,12 +697,41 @@ class DigestGenerator:
             for name, data in all_buoy_conditions.items():
                 if data.get("wave_height_ft"):
                     location = data.get("location", name)
+                    # Normalize buoy location labels to canonical coast display
+                    # names so keys match the PacIOOS path and coast summaries.
+                    location = self.BUOY_LOCATION_TO_DISPLAY.get(location, location)
                     current_buoy_data[location] = data["wave_height_ft"]
         except Exception as e:
             logger.debug(f"Failed to get current buoy data: {e}")
 
+        # Pre-fetch NOAA hi/lo tide predictions per station covering the whole
+        # forecast range in ONE call each, so forecast-day scoring uses a REAL
+        # tide phase (not the neutral "any"->100 fallback). Keyed by station id;
+        # the phase at each day's dive window is derived from these.
+        # Anchor "today" to HST (not process-local/UTC) so the digest and the
+        # ranker agree on which day is being scored — otherwise the OWM window
+        # wind is pulled for different dates and the Today grade drifts from the
+        # Top-Sites grade near HST midnight.
+        today = now_hst().date()
+        tide_predictions_by_station: dict = {}
+        try:
+            tides_client = self.ranker.tides
+            start_dt = datetime.combine(today, datetime.min.time())
+            end_dt = start_dt + timedelta(days=days + 1)
+            station_ids = set(
+                tides_client.get_station_for_coast(c) for c in self.site_db.coasts
+            )
+            for sid in station_ids:
+                try:
+                    tide_predictions_by_station[sid] = tides_client.get_tide_predictions(
+                        sid, start_date=start_dt, end_date=end_dt, interval="hilo"
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(f"Tide predictions fetch failed for {sid}: {e}")
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Tide prediction pre-fetch skipped: {e}")
+
         # Generate forecast for each day
-        today = datetime.now().date()
         day_names = ["Today", "Tomorrow"]
 
         for i in range(days):
@@ -855,9 +896,15 @@ class DigestGenerator:
             if i == 0 and ranked_sites:
                 # TODAY: Use actual ranked site data - show ALL diveable sites
                 # Use OWM for per-site wind forecast (full day) instead of NWS snapshot
-                # which only shows the wind at report generation time (e.g. 5 AM calm)
-                owm_today = OpenWeatherMapClient()
-                today_dt = datetime.combine(forecast_date, datetime.min.time())
+                # which only shows the wind at report generation time (e.g. 5 AM calm).
+                # Reuse the ranker's OWM client so the per-site day-average wind is
+                # served from cache (already fetched during ranking) — the Today
+                # grade must equal the Top-Sites grade for the same site.
+                owm_today = self.ranker.owm
+                # Use the HST-pinned dive-window time (identical to the ranker's
+                # OWM call) so the cached window-wind extraction targets the SAME
+                # day — the Today grade must equal the Top-Sites grade.
+                today_dt = dive_window_time(forecast_date)
 
                 for site in ranked_sites:
                     # Skip Hanauma Bay (user never goes there)
@@ -1049,25 +1096,32 @@ class DigestGenerator:
                     # soft forecast penalty); OWM window mm stays for narrative.
                     rain_chance_pct = float(site_rain_chance) if site_rain_chance is not None else None
 
-                    # Recalculate score with OWM wind (not the stale NWS snapshot)
-                    forecast_input = ScoringInput(
+                    # Recalculate via the SAME assembler the ranker uses. With the
+                    # ranker now scoring on OWM window wind too, and the OWM client
+                    # shared (cached), this reproduces the Top-Sites grade for the
+                    # site. Fall back to the ranker's stored wind if the OWM cache
+                    # somehow missed, so the two paths never diverge on wind.
+                    if site_wind is None:
+                        site_wind = cond.wind_speed_mph
+                    forecast_input = build_scoring_input(
+                        site.site,
                         wave_height_ft=wave_ht,
                         raw_wave_height_ft=cond.raw_wave_height_ft,
                         wave_period_s=cond.wave_period_s,
+                        swell_direction_deg=cond.swell_direction_deg,
                         wind_speed_mph=site_wind,
+                        wind_direction_deg=cond.wind_direction_deg,
                         tide_phase=cond.tide_phase,
                         water_level_ft=cond.water_level_ft,
                         stream_discharge_cfs=cond.stream_discharge_cfs,
                         rainfall_48h_inches=cond.rainfall_48h_inches,
-                        rain_chance_pct=rain_chance_pct,
+                        rain_chance_pct=rain_chance_pct if rain_chance_pct is not None else cond.rain_chance_pct,
                         brown_water_advisory=cond.brown_water_advisory,
                         coast_brown_water=cond.coast_brown_water,
                         high_surf_warning=cond.high_surf_warning,
                         high_surf_advisory=cond.high_surf_advisory,
                         # Score the dive window (07:00 HST) for this day.
                         evaluation_time=dive_window_time(forecast_date),
-                        site_max_safe_height_ft=site.site.max_safe_wave_height,
-                        site_swell_exposure_primary=site.site.swell_exposure.primary,
                     )
                     recalc_score = self.ranker.scorer.calculate_score(forecast_input)
 
@@ -1090,8 +1144,9 @@ class DigestGenerator:
 
             elif ranked_sites:
                 # FUTURE DAYS: Query PacIOOS for waves and OpenWeatherMap for wind
-                # This gives us per-site forecasts instead of coast/island-level
-                owm = OpenWeatherMapClient()
+                # This gives us per-site forecasts instead of coast/island-level.
+                # Share the ranker's OWM client (cache reuse across days/sites).
+                owm = self.ranker.owm
 
                 # Pre-compute coast-level average wave heights for this day as fallback
                 coast_wave_averages = {}
@@ -1354,8 +1409,30 @@ class DigestGenerator:
                     # coast advisory flag is carried from today's ranked data.
                     rain_chance_pct = float(site_rain_chance) if site_rain_chance is not None else None
 
-                    # Use the actual scorer for consistent grade/score
-                    forecast_input = ScoringInput(
+                    # Predicted tide for THIS forecast day's dive window, from the
+                    # pre-fetched NOAA hi/lo predictions (real phase, not neutral).
+                    fc_tide_phase = None
+                    fc_water_level = None
+                    try:
+                        station_id = self.ranker.tides.get_station_for_coast(site.site.coast)
+                        preds = tide_predictions_by_station.get(station_id)
+                        if preds is not None and not preds.empty:
+                            tide_at = self.ranker.tides.get_tide_phase_at(
+                                station_id,
+                                dive_window_time(forecast_date),
+                                predictions=preds,
+                            )
+                            fc_tide_phase = tide_at.get("phase")
+                            fc_water_level = tide_at.get("water_level_ft")
+                    except Exception as e:  # noqa: BLE001
+                        logger.debug(f"Forecast tide phase failed for {site.site.name}: {e}")
+
+                    # Use the SAME assembler as the ranker/Today paths. Wind falls
+                    # back to the ranker's stored wind if OWM missed for this day.
+                    if site_wind is None:
+                        site_wind = site.conditions.wind_speed_mph
+                    forecast_input = build_scoring_input(
+                        site.site,
                         wave_height_ft=wave_ht,
                         raw_wave_height_ft=raw_wave_ht,
                         wave_period_s=wave_period,
@@ -1363,10 +1440,10 @@ class DigestGenerator:
                         rainfall_48h_inches=None,
                         rain_chance_pct=rain_chance_pct,
                         coast_brown_water=site.conditions.coast_brown_water,
+                        tide_phase=fc_tide_phase,
+                        water_level_ft=fc_water_level,
                         # Score the dive window (07:00 HST) for this forecast day.
                         evaluation_time=dive_window_time(forecast_date),
-                        site_max_safe_height_ft=site.site.max_safe_wave_height,
-                        site_swell_exposure_primary=site.site.swell_exposure.primary,
                     )
                     forecast_score = self.ranker.scorer.calculate_score(forecast_input)
 
@@ -1378,7 +1455,7 @@ class DigestGenerator:
                         wind_speed_mph=site_wind,
                         wind_type="forecast",
                         wind_direction=wind_dir,
-                        tide_phase=None,
+                        tide_phase=fc_tide_phase,
                         outlook=forecast_score.grade.value,
                         score=forecast_score.total_score,
                         best_time=best_time_range,

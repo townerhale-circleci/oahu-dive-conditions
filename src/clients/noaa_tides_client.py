@@ -327,6 +327,88 @@ class NOAATidesClient:
             "current_level_ft": current_level,
         }
 
+    def get_tide_phase_at(
+        self,
+        station_id: str,
+        when: datetime,
+        predictions: Optional[pd.DataFrame] = None,
+    ) -> dict:
+        """Determine the tide phase and interpolated level at a future instant.
+
+        Used for forecast-day scoring: NOAA publishes high/low predictions well
+        into the future, so a forecast day's dive window has a REAL tide phase
+        rather than the neutral "no data" fallback. Phase is derived from the
+        bracketing hi/lo predictions around ``when``:
+
+          - rising  : between a low (before) and a high (after)
+          - falling : between a high (before) and a low (after)
+          - high    : within ~1h of a predicted high
+          - low     : within ~1h of a predicted low
+
+        Args:
+            station_id: NOAA station ID.
+            when: The instant (Hawaii-local, naive or HST-aware) to evaluate.
+            predictions: Optional pre-fetched hi/lo predictions DataFrame (single
+                API call reused across many forecast days). If None, fetched for
+                a window around ``when``.
+
+        Returns:
+            Dict with keys: phase ("rising"/"falling"/"high"/"low" or None),
+            water_level_ft (interpolated, or None).
+        """
+        # Normalize ``when`` to a naive Hawaii-local datetime to match the
+        # lst_ldt prediction timestamps.
+        if when.tzinfo is not None:
+            when = when.astimezone(ZoneInfo("Pacific/Honolulu")).replace(tzinfo=None)
+
+        if predictions is None:
+            start = when - timedelta(days=1)
+            end = when + timedelta(days=1)
+            predictions = self.get_tide_predictions(
+                station_id, start_date=start, end_date=end, interval="hilo"
+            )
+
+        empty = {"phase": None, "water_level_ft": None}
+        if predictions is None or predictions.empty or "type" not in predictions:
+            return empty
+
+        df = predictions.copy()
+        df["time_parsed"] = pd.to_datetime(df["time"])
+        df = df.sort_values("time_parsed")
+
+        before = df[df["time_parsed"] <= when]
+        after = df[df["time_parsed"] > when]
+        if before.empty or after.empty:
+            return empty
+
+        prev = before.iloc[-1]
+        nxt = after.iloc[0]
+
+        # Near an extreme (within ~1h) -> that extreme's phase.
+        if (when - prev["time_parsed"]).total_seconds() <= 3600:
+            phase = "high" if prev["type"] == "H" else "low"
+        elif (nxt["time_parsed"] - when).total_seconds() <= 3600:
+            phase = "high" if nxt["type"] == "H" else "low"
+        elif nxt["type"] == "H":
+            phase = "rising"
+        else:
+            phase = "falling"
+
+        # Linear-interpolate the water level between the bracketing extremes.
+        level = None
+        try:
+            p_lvl = prev["water_level_ft"]
+            n_lvl = nxt["water_level_ft"]
+            if p_lvl is not None and n_lvl is not None:
+                span = (nxt["time_parsed"] - prev["time_parsed"]).total_seconds()
+                if span > 0:
+                    frac = (when - prev["time_parsed"]).total_seconds() / span
+                    level = p_lvl + (n_lvl - p_lvl) * frac
+        except (TypeError, KeyError):
+            level = None
+
+        return {"phase": phase, "water_level_ft": level}
+
     def get_station_for_coast(self, coast: str) -> str:
         """Get the appropriate tide station for a coast.
 
