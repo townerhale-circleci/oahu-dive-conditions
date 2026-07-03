@@ -1008,14 +1008,13 @@ class DigestGenerator:
                     # Compute rain for the specific dive window. None means "no
                     # data"; a real 0.0 mm (dry) must still score as 0.0 in.
                     site_rain_chance = None
-                    site_rain_mm = None
                     if owm_hourly:
                         win_start, win_end = self._parse_time_range(best_time)
-                        site_rain_chance, window_mm, pre_window_mm = (
+                        # Only the window rain-chance (PoP) feeds scoring/narrative;
+                        # the mm accumulations are not consumed downstream.
+                        site_rain_chance, _, _ = (
                             self._compute_window_rain(owm_hourly, win_start, win_end)
                         )
-                        # Scoring uses window rain + pre-window runoff
-                        site_rain_mm = window_mm + pre_window_mm
 
                     # Build detailed "Why" explanation
                     reasons = []
@@ -1330,13 +1329,13 @@ class DigestGenerator:
                     # Compute rain for the specific dive window. None means "no
                     # data"; a real 0.0 mm (dry) must still score as 0.0 in.
                     site_rain_chance = None
-                    site_rain_mm = None
                     if owm_hourly:
                         win_start, win_end = self._parse_time_range(best_time_range)
-                        site_rain_chance, window_mm, pre_window_mm = (
+                        # Only the window rain-chance (PoP) feeds scoring/narrative;
+                        # the mm accumulations are not consumed downstream.
+                        site_rain_chance, _, _ = (
                             self._compute_window_rain(owm_hourly, win_start, win_end)
                         )
-                        site_rain_mm = window_mm + pre_window_mm
 
                     # Build detailed "Why" explanation
                     reasons = []

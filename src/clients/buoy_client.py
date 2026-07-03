@@ -182,77 +182,132 @@ class BuoyClient:
             )
             conn.commit()
 
+    @staticmethod
+    def _parse_header(lines: list[str]) -> Optional[dict[str, int]]:
+        """Map NDBC column names to positional indices from the header line.
+
+        NDBC realtime2 files have two comment header lines; the first names the
+        columns, e.g. ``#YY MM DD hh mm WDIR WSPD GST WVHT DPD ...``. Parsing by
+        header name (not fixed index) survives column additions/reordering.
+        Returns ``{COLUMN_NAME: index}`` (uppercased) or ``None`` if no header.
+        """
+        for line in lines:
+            if line.startswith("#"):
+                cols = line.lstrip("#").split()
+                if cols and cols[0].upper() in ("YY", "YYYY"):
+                    return {name.upper(): i for i, name in enumerate(cols)}
+        return None
+
+    @staticmethod
+    def _parse_time(parts: list[str]) -> Optional[str]:
+        """Build an ISO-8601 UTC timestamp from the leading date/time columns.
+
+        NDBC realtime2 files always begin with YY MM DD hh mm in positions 0-4.
+        These are used positionally (not by header name) because the header
+        collides on case: month is ``MM`` and minute is ``mm`` in the same file.
+        """
+        try:
+            year = int(parts[0])
+            if year < 100:
+                year += 2000
+            return f"{year}-{parts[1]}-{parts[2]}T{parts[3]}:{parts[4]}:00Z"
+        except (ValueError, IndexError):
+            return None
+
     def _parse_ndbc_spectral(self, text: str) -> list[dict]:
-        """Parse NDBC spectral data text format."""
+        """Parse NDBC spectral (.spec) data using header-name column indexing.
+
+        Header (typical): ``#YY MM DD hh mm WVHT SwH SwP WWH WWP SwD WWD
+        STEEPNESS APD MWD``. STEEPNESS is a word ("AVERAGE"/"STEEP"), so fixed
+        indexing past it was fragile; we locate every field by name instead.
+        """
         lines = text.strip().split("\n")
-        if len(lines) < 3:
+        cols = self._parse_header(lines)
+        if cols is None:
             return []
 
+        def col(parts, name):
+            idx = cols.get(name)
+            if idx is None or idx >= len(parts):
+                return None
+            return parts[idx]
+
+        def col_dir(parts, name):
+            """Compass-string direction column ('NW'), 'MM' -> None."""
+            v = col(parts, name)
+            if v is None or v == "MM":
+                return None
+            return v
+
         records = []
-        for line in lines[2:]:  # Skip header lines
+        for line in lines:
+            if line.startswith("#") or not line.strip():
+                continue
             parts = line.split()
-            if len(parts) < 15:
+            # Need at least the timestamp + WVHT to be a usable row.
+            if len(parts) < 6:
                 continue
 
-            try:
-                # NDBC spectral format: YY MM DD hh mm WVHT SwH SwP WWH WWP SwD WWD STEEPNESS APD MWD
-                year = int(parts[0])
-                if year < 100:
-                    year += 2000
-
-                time_str = f"{year}-{parts[1]}-{parts[2]}T{parts[3]}:{parts[4]}:00Z"
-
-                record = {
-                    "time": time_str,
-                    "wave_height_m": self._safe_float(parts[5]),
-                    "swell_height_m": self._safe_float(parts[6]),
-                    "swell_period_s": self._safe_float(parts[7]),
-                    "wind_wave_height_m": self._safe_float(parts[8]),
-                    "wind_wave_period_s": self._safe_float(parts[9]),
-                    "swell_direction": parts[10] if parts[10] != "MM" else None,
-                    "wind_wave_direction": parts[11] if parts[11] != "MM" else None,
-                    "average_period_s": self._safe_float(parts[13]),
-                    "mean_wave_direction": self._safe_float(parts[14]),
-                }
-                records.append(record)
-            except (ValueError, IndexError):
+            time_str = self._parse_time(parts)
+            if time_str is None:
                 continue
+
+            records.append({
+                "time": time_str,
+                "wave_height_m": self._safe_float(col(parts, "WVHT"), "wave"),
+                "swell_height_m": self._safe_float(col(parts, "SWH"), "wave"),
+                "swell_period_s": self._safe_float(col(parts, "SWP"), "period"),
+                "wind_wave_height_m": self._safe_float(col(parts, "WWH"), "wave"),
+                "wind_wave_period_s": self._safe_float(col(parts, "WWP"), "period"),
+                "swell_direction": col_dir(parts, "SWD"),
+                "wind_wave_direction": col_dir(parts, "WWD"),
+                "average_period_s": self._safe_float(col(parts, "APD"), "period"),
+                "mean_wave_direction": self._safe_float(col(parts, "MWD"), "direction"),
+            })
 
         return records
 
     def _parse_ndbc_standard(self, text: str) -> list[dict]:
-        """Parse NDBC standard meteorological data text format."""
+        """Parse NDBC standard meteorological (.txt) data by header-name indexing.
+
+        Header (typical): ``#YY MM DD hh mm WDIR WSPD GST WVHT DPD APD MWD PRES
+        ...``. Oahu buoys report MM for all wind fields; those parse to None and
+        are never surfaced as 0 (see notes on buoy wind).
+        """
         lines = text.strip().split("\n")
-        if len(lines) < 3:
+        cols = self._parse_header(lines)
+        if cols is None:
             return []
 
+        def col(parts, name):
+            idx = cols.get(name)
+            if idx is None or idx >= len(parts):
+                return None
+            return parts[idx]
+
         records = []
-        for line in lines[2:]:  # Skip header lines
+        for line in lines:
+            if line.startswith("#") or not line.strip():
+                continue
             parts = line.split()
-            if len(parts) < 13:
+            if len(parts) < 6:
                 continue
 
-            try:
-                year = int(parts[0])
-                if year < 100:
-                    year += 2000
-
-                time_str = f"{year}-{parts[1]}-{parts[2]}T{parts[3]}:{parts[4]}:00Z"
-
-                record = {
-                    "time": time_str,
-                    "wind_direction": self._safe_float(parts[5]),
-                    "wind_speed_mps": self._safe_float(parts[6]),
-                    "gust_speed_mps": self._safe_float(parts[7]),
-                    "wave_height_m": self._safe_float(parts[8]),
-                    "dominant_period_s": self._safe_float(parts[9]),
-                    "average_period_s": self._safe_float(parts[10]),
-                    "mean_wave_direction": self._safe_float(parts[11]),
-                    "pressure_hpa": self._safe_float(parts[12]),
-                }
-                records.append(record)
-            except (ValueError, IndexError):
+            time_str = self._parse_time(parts)
+            if time_str is None:
                 continue
+
+            records.append({
+                "time": time_str,
+                "wind_direction": self._safe_float(col(parts, "WDIR"), "direction"),
+                "wind_speed_mps": self._safe_float(col(parts, "WSPD"), "speed"),
+                "gust_speed_mps": self._safe_float(col(parts, "GST"), "speed"),
+                "wave_height_m": self._safe_float(col(parts, "WVHT"), "wave"),
+                "dominant_period_s": self._safe_float(col(parts, "DPD"), "period"),
+                "average_period_s": self._safe_float(col(parts, "APD"), "period"),
+                "mean_wave_direction": self._safe_float(col(parts, "MWD"), "direction"),
+                "pressure_hpa": self._safe_float(col(parts, "PRES"), "pressure"),
+            })
 
         return records
 
@@ -273,14 +328,42 @@ class BuoyClient:
         age = datetime.now(timezone.utc) - obs_time
         return age > timedelta(seconds=MAX_OBSERVATION_AGE_SECONDS)
 
-    def _safe_float(self, value: str) -> Optional[float]:
-        """Safely convert to float, returning None for missing values."""
-        if value in ("MM", "999", "99.0", "9999", "99.00"):
+    # NDBC numeric "missing value" fills per field. Each field's sentinel is an
+    # all-9s value one order of magnitude above the field's real range: WVHT/
+    # DPD/APD use 99.00, WSPD/GST 99.0, MWD/WDIR 999, PRES 9999.0. We map a
+    # value to None when it is >= the field's sentinel magnitude, which is
+    # robust to NDBC's decimal-format variations ("99.0" vs "99.00"). The
+    # thresholds are picked so no legitimate reading reaches them (e.g. wave
+    # height never 99 m, direction 0-360 < 999, sea-level pressure < 9999 hPa).
+    _SENTINELS = {
+        "wave": 99.0,       # WVHT, SwH, WWH (metres)
+        "period": 99.0,     # DPD, APD, SwP, WWP (seconds)
+        "direction": 999.0, # MWD, WDIR (degrees, 0-360)
+        "speed": 99.0,      # WSPD, GST (m/s)
+        "pressure": 9999.0, # PRES (hPa)
+    }
+
+    def _safe_float(
+        self, value: Optional[str], field: str = "wave"
+    ) -> Optional[float]:
+        """Convert an NDBC field to float, mapping missing sentinels to None.
+
+        Returns None for ``MM``, blank/None, and the field's all-9s numeric fill
+        (see ``_SENTINELS``). ``field`` selects the sentinel magnitude so a real
+        direction (e.g. 315°) or pressure (1013 hPa) is not mistaken for a fill.
+        """
+        if value is None:
+            return None
+        v = value.strip()
+        if v in ("", "MM"):
             return None
         try:
-            return float(value)
+            f = float(v)
         except ValueError:
             return None
+        if f >= self._SENTINELS.get(field, 99.0):
+            return None
+        return f
 
     def get_spectral_data(
         self,

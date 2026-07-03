@@ -186,25 +186,41 @@ def test_poor_conditions():
 
 
 def test_safety_gate_high_surf_warning():
-    """Test that high surf warning triggers safety gate."""
+    """High Surf Warning is NON-gating (current design).
+
+    A HSW is island-wide and may not apply to a given site's coast, so it must
+    NOT force an UNSAFE gate. It only surfaces an informational warning; the
+    site is still scored on its actual (effective) local wave height. With
+    benign 2 ft waves under a 4 ft site threshold the site should pass its
+    gates and grade on its real conditions.
+    """
     scorer = DiveScorer()
 
     inputs = ScoringInput(
-        wave_height_ft=2.0,  # Waves seem fine
+        wave_height_ft=2.0,  # Waves benign at this site
         wave_period_s=10,
         wind_speed_mph=5,
-        high_surf_warning=True,  # But warning is active
+        high_surf_warning=True,  # Island-wide warning active, but non-gating
         site_max_safe_height_ft=4,
     )
 
     result = scorer.calculate_score(inputs)
-    print_result("Safety Gate: High Surf Warning", result)
+    print_result("High Surf Warning (non-gating, informational only)", result)
 
-    assert result.safety_gates_passed == False
-    assert result.total_score == 0
-    assert result.grade == ScoreGrade.UNSAFE
-    assert result.diveable == False
-    assert any("High Surf Warning" in g.reason for g in result.failed_gates)
+    # HSW must NOT gate: gates pass, score is real, not forced to zero/UNSAFE.
+    assert result.safety_gates_passed == True, "HSW must not trigger a safety gate"
+    assert result.total_score > 0
+    assert result.grade != ScoreGrade.UNSAFE
+    assert result.diveable == True
+    # No HSW-related failed gate should exist.
+    assert not any(
+        "high surf" in (g.reason or "").lower() for g in result.failed_gates
+    ), "HSW must not appear as a failed safety gate"
+    # But it MUST surface as an informational warning (a penalty on trust, not
+    # a hard rejection).
+    assert any(
+        "high surf warning" in w.lower() for w in result.warnings
+    ), "HSW should surface as an informational warning"
     return True
 
 
@@ -363,7 +379,7 @@ def run_all_tests():
         ("Good Conditions", test_good_conditions),
         ("Fair Conditions", test_fair_conditions),
         ("Poor Conditions", test_poor_conditions),
-        ("Safety Gate: High Surf Warning", test_safety_gate_high_surf_warning),
+        ("High Surf Warning (non-gating)", test_safety_gate_high_surf_warning),
         ("Safety Gate: Brown Water Advisory", test_safety_gate_brown_water),
         ("Safety Gate: Wave Height Exceeded", test_safety_gate_wave_height),
         ("Quick Score Function", test_quick_score),

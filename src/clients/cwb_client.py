@@ -8,13 +8,11 @@ and reduced visibility.
 import hashlib
 import json
 import logging
-import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 

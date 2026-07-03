@@ -6,6 +6,7 @@ No API key required.
 
 import hashlib
 import json
+import logging
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -14,8 +15,44 @@ from typing import Optional
 import pandas as pd
 import requests
 
+logger = logging.getLogger(__name__)
+
+
+import re
+
 
 NWS_BASE_URL = "https://api.weather.gov"
+
+
+# Small shoreward/perturbation nudges (deg lat, deg lon) tried in order when a
+# site's exact coordinate returns 404 from the NWS /points endpoint (coastal
+# gap). ~0.003 deg ~= 330 m. Oahu beaches all have land to at least one of
+# these directions within a few hundred metres, so one of these resolves.
+_GRIDPOINT_NUDGES = [
+    (-0.003, 0.002),   # S/E (inland for a N/W-facing shore like Waimea)
+    (-0.003, -0.002),  # S/W
+    (0.003, 0.002),    # N/E
+    (0.003, -0.002),   # N/W
+    (-0.006, 0.0),     # further S
+    (0.0, 0.004),      # further E
+    (0.0, -0.004),     # further W
+    (0.006, 0.0),      # further N
+]
+
+
+def _parse_wind_speed_mph(wind_speed_str: Optional[str]) -> int:
+    """Parse an NWS windSpeed string to an integer mph, taking the MAX.
+
+    NWS returns strings like "10 mph" or a range "10 to 15 mph". A range must
+    be scored on its upper bound (the gustier end), so extract every integer in
+    the string and return the largest. Returns 0 when nothing parses.
+    """
+    if not wind_speed_str:
+        return 0
+    numbers = re.findall(r"\d+", str(wind_speed_str))
+    if not numbers:
+        return 0
+    return max(int(n) for n in numbers)
 CACHE_TTL_SECONDS = 1800  # 30 minutes for weather data
 ALERTS_CACHE_TTL_SECONDS = 300  # 5 minutes for alerts
 USER_AGENT = "OahuDiveConditions/1.0 (dive-conditions-app)"
@@ -107,26 +144,50 @@ class NWSClient:
         if cache_key in self._gridpoint_cache:
             return self._gridpoint_cache[cache_key]
 
-        url = f"{NWS_BASE_URL}/points/{lat:.4f},{lon:.4f}"
+        # Coastal dive-site coordinates sometimes land just outside the NWS
+        # gridded-forecast domain (over water, or in a small gap), which makes
+        # /points return 404 (e.g. Waimea Bay at 21.6417,-158.0667). Retry with
+        # a series of small shoreward nudges until one resolves; the forecast a
+        # few hundred metres inland is representative for a beach site. The
+        # resolved grid is cached under the ORIGINAL coordinate so this one-time
+        # correction is not repeated.
+        candidates = [(lat, lon)] + [
+            (lat + dlat, lon + dlon) for dlat, dlon in _GRIDPOINT_NUDGES
+        ]
 
-        try:
-            response = self.session.get(url, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-        except requests.RequestException as e:
-            raise NWSError(f"Failed to get gridpoint for {lat}, {lon}: {e}") from e
+        last_error: Optional[Exception] = None
+        for i, (clat, clon) in enumerate(candidates):
+            url = f"{NWS_BASE_URL}/points/{clat:.4f},{clon:.4f}"
+            try:
+                response = self.session.get(url, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+            except requests.RequestException as e:
+                last_error = e
+                continue
 
-        props = data.get("properties", {})
-        office = props.get("gridId")
-        grid_x = props.get("gridX")
-        grid_y = props.get("gridY")
+            props = data.get("properties", {})
+            office = props.get("gridId")
+            grid_x = props.get("gridX")
+            grid_y = props.get("gridY")
 
-        if not all([office, grid_x is not None, grid_y is not None]):
-            raise NWSError(f"Invalid gridpoint response for {lat}, {lon}")
+            if not all([office, grid_x is not None, grid_y is not None]):
+                last_error = NWSError(f"Invalid gridpoint response for {clat}, {clon}")
+                continue
 
-        result = (office, grid_x, grid_y)
-        self._gridpoint_cache[cache_key] = result
-        return result
+            if i > 0:
+                logger.info(
+                    "NWS /points 404 at %.4f,%.4f; resolved via shoreward nudge "
+                    "to %.4f,%.4f (grid %s %s,%s)",
+                    lat, lon, clat, clon, office, grid_x, grid_y,
+                )
+            result = (office, grid_x, grid_y)
+            self._gridpoint_cache[cache_key] = result
+            return result
+
+        raise NWSError(
+            f"Failed to get gridpoint for {lat}, {lon} (and shoreward nudges): {last_error}"
+        )
 
     def get_hourly_forecast(
         self,
@@ -167,11 +228,7 @@ class NWSClient:
 
         records = []
         for period in periods:
-            wind_speed_str = period.get("windSpeed", "0 mph")
-            try:
-                wind_speed = int(wind_speed_str.split()[0]) if wind_speed_str else 0
-            except (ValueError, IndexError):
-                wind_speed = 0
+            wind_speed = _parse_wind_speed_mph(period.get("windSpeed"))
 
             # Handle precipitation probability where API returns {"value": null}
             precip_data = period.get("probabilityOfPrecipitation") or {}

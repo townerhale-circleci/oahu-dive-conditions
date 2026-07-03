@@ -8,6 +8,7 @@ Model domain: lat 21.2-21.75, lon -158.35 to -157.6 (approx)
 
 import hashlib
 import json
+import logging
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -15,6 +16,8 @@ from typing import Optional
 
 import pandas as pd
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 ERDDAP_BASE = "https://pae-paha.pacioos.hawaii.edu/erddap/griddap/swan_oahu"
@@ -119,6 +122,78 @@ class PacIOOSClient:
         """Check if coordinates are within model domain."""
         return (LAT_MIN <= lat <= LAT_MAX) and (LON_MIN <= lon <= LON_MAX)
 
+    # ERDDAP variable name -> output record key.
+    _ERDDAP_COLUMNS = {
+        "time": "time",
+        "shgt": "wave_height_m",   # significant wave height (m)
+        "mper": "period_s",        # mean wave period (s)
+        "mdir": "direction_deg",   # mean wave direction (deg)
+    }
+
+    @staticmethod
+    def _parse_erddap_csv(text: str) -> list[dict]:
+        """Parse an ERDDAP griddap CSV by header name with column validation.
+
+        The response has a header row of column names, a units row, then data.
+        We index columns by name and require the expected variables (time, shgt,
+        mper, mdir) to be present; a missing required column yields an empty
+        result rather than a silently-misaligned parse. NaN cells map to None,
+        and a row with no wave height is skipped.
+        """
+        lines = text.strip().split("\n")
+        if len(lines) < 3:  # header + units + >=1 data row
+            return []
+
+        header = [h.strip() for h in lines[0].split(",")]
+        col_idx = {name: i for i, name in enumerate(header)}
+
+        # Validate all required columns are present.
+        required = ("time", "shgt", "mper", "mdir")
+        missing = [c for c in required if c not in col_idx]
+        if missing:
+            logger.warning(
+                "PacIOOS ERDDAP CSV missing expected columns %s; header was %s",
+                missing, header,
+            )
+            return []
+
+        def cell(parts, name):
+            idx = col_idx[name]
+            if idx >= len(parts):
+                return None
+            v = parts[idx].strip()
+            if v == "" or v == "NaN":
+                return None
+            return v
+
+        records = []
+        # Skip header (row 0) and units (row 1).
+        for line in lines[2:]:
+            if not line.strip():
+                continue
+            parts = line.split(",")
+
+            shgt = cell(parts, "shgt")
+            if shgt is None:  # no wave height -> unusable row
+                continue
+
+            def to_float(v):
+                if v is None:
+                    return None
+                try:
+                    return float(v)
+                except ValueError:
+                    return None
+
+            records.append({
+                "time": cell(parts, "time"),
+                "wave_height_m": to_float(shgt),
+                "period_s": to_float(cell(parts, "mper")),
+                "direction_deg": to_float(cell(parts, "mdir")),
+            })
+
+        return records
+
     def get_wave_data(
         self,
         lat: float,
@@ -196,32 +271,13 @@ class PacIOOSClient:
                 _circuit_breaker["opened_at"] = datetime.utcnow()
             raise PacIOOSError(f"Failed to fetch data from PacIOOS: {e}") from e
 
-        # Parse CSV response
-        lines = response.text.strip().split("\n")
-        if len(lines) < 3:  # Header + units + at least one data row
-            return pd.DataFrame(columns=["time", "wave_height_m", "period_s", "direction_deg"])
-
-        # Skip header and units rows
-        records = []
-        for line in lines[2:]:
-            parts = line.split(",")
-            if len(parts) >= 6:
-                time_str = parts[0]
-                shgt = parts[4]
-                mper = parts[5] if len(parts) > 5 else None
-                mdir = parts[6] if len(parts) > 6 else None
-
-                # Skip NaN values
-                if shgt == "NaN" or not shgt:
-                    continue
-
-                records.append({
-                    "time": time_str,
-                    "wave_height_m": float(shgt) if shgt and shgt != "NaN" else None,
-                    "period_s": float(mper) if mper and mper != "NaN" else None,
-                    "direction_deg": float(mdir) if mdir and mdir != "NaN" else None,
-                })
-
+        # Parse CSV response by HEADER NAME, not fixed position. The ERDDAP
+        # griddap CSV has a column-name row then a units row, e.g.:
+        #   time,depth,latitude,longitude,shgt,mper,mdir
+        #   UTC,m,degrees_north,degrees_east,meters,second,degrees
+        # We locate each required variable by name and validate all are present
+        # before parsing, so a column reorder/addition won't silently misread.
+        records = self._parse_erddap_csv(response.text)
         df = pd.DataFrame(records)
 
         if use_cache and not df.empty:

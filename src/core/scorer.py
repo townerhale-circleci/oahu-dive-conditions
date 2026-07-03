@@ -28,12 +28,20 @@ Safety Gates (binary rejection):
 Note: High Surf Warning is NOT a safety gate - it's island-wide and informational only.
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Optional
 
 from src.utils.timezones import HST, now_hst
+
+logger = logging.getLogger(__name__)
+
+# Default config location: <repo>/config/config.yaml (this file lives at
+# <repo>/src/core/scorer.py, so go up three levels).
+_DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "config.yaml"
 
 
 class ScoreGrade(Enum):
@@ -179,9 +187,75 @@ class DiveScorer:
     # is not itself extreme; 10 ft raw Hs indicates genuinely extreme seas.
     ABSOLUTE_MAX_WAVE_HEIGHT_FT = 10.0
 
-    def __init__(self):
-        """Initialize the scorer."""
-        pass
+    def __init__(self, config_path: Optional[Path] = None):
+        """Initialize the scorer, loading tunable constants from config.yaml.
+
+        The class-level constants above are the authoritative DEFAULTS. At init
+        we overlay any values found in config/config.yaml as instance attributes
+        (which shadow the class attributes the scoring methods read via self.*),
+        so the two no longer have to be hand-synced. A missing or malformed
+        config file is non-fatal: the defaults stand.
+        """
+        self._load_config(config_path)
+
+    def _load_config(self, config_path: Optional[Path] = None) -> None:
+        """Overlay scoring constants from config.yaml onto this instance.
+
+        Only keys present in the file are applied; anything absent keeps the
+        class default. Errors (missing file, bad YAML, missing 'scoring' block)
+        are logged and swallowed so the scorer always constructs.
+        """
+        path = config_path or _DEFAULT_CONFIG_PATH
+        try:
+            import yaml
+            with open(path) as f:
+                cfg = yaml.safe_load(f) or {}
+        except FileNotFoundError:
+            logger.info("Scorer config %s not found; using built-in defaults", path)
+            return
+        except Exception as e:  # bad YAML, IO error, missing pyyaml
+            logger.warning("Failed to load scorer config %s (%s); using defaults", path, e)
+            return
+
+        scoring = (cfg or {}).get("scoring") or {}
+
+        def _set(attr: str, value) -> None:
+            if value is not None:
+                setattr(self, attr, value)
+
+        wpi = scoring.get("wpi_thresholds") or {}
+        _set("WPI_EXCELLENT", wpi.get("excellent"))
+        _set("WPI_POOR", wpi.get("poor"))
+
+        wind = scoring.get("wind_thresholds") or {}
+        _set("WIND_CALM", wind.get("calm"))
+        _set("WIND_MODERATE", wind.get("moderate"))
+        _set("WIND_STRONG", wind.get("strong"))
+
+        discharge = scoring.get("discharge_thresholds") or {}
+        _set("DISCHARGE_LOW", discharge.get("low"))
+        _set("DISCHARGE_HIGH", discharge.get("high"))
+
+        rainfall = scoring.get("rainfall_thresholds") or {}
+        _set("RAINFALL_NONE", rainfall.get("none"))
+        _set("RAINFALL_HEAVY", rainfall.get("heavy"))
+
+        rain_chance = scoring.get("rain_chance") or {}
+        _set("RAIN_CHANCE_NONE", rain_chance.get("none"))
+        _set("RAIN_CHANCE_FLOOR", rain_chance.get("floor"))
+
+        _set("COAST_BROWN_WATER_CAP", scoring.get("coast_brown_water_cap"))
+
+        weights = scoring.get("weights") or {}
+        _set("WEIGHT_WAVE_POWER", weights.get("wave_power"))
+        _set("WEIGHT_WIND", weights.get("wind"))
+        _set("WEIGHT_VISIBILITY", weights.get("visibility"))
+        _set("WEIGHT_TIDE", weights.get("tide"))
+        _set("WEIGHT_TIME", weights.get("time_of_day"))
+
+        safety = (cfg or {}).get("safety") or {}
+        _set("ABSOLUTE_MAX_WAVE_HEIGHT_FT", safety.get("absolute_max_wave_height"))
+        _set("MAX_WAVE_HEIGHT_FT", safety.get("default_max_safe_wave_height"))
 
     def calculate_wave_power_index(
         self,
@@ -666,7 +740,7 @@ class DiveScorer:
             warnings.append("High Surf Warning in effect for some areas")
         if inputs.high_surf_advisory:
             warnings.append("High Surf Advisory in effect - use caution")
-        if wpi is not None and wpi > 20:
+        if wpi is not None and wpi > 120:
             warnings.append(f"Elevated wave power index ({wpi:.1f}) - challenging conditions")
         if wind_type == "onshore" and inputs.wind_speed_mph and inputs.wind_speed_mph > 10:
             warnings.append(f"Onshore winds ({inputs.wind_speed_mph:.0f} mph) - expect choppy conditions")
@@ -764,9 +838,12 @@ class DiveScorer:
             summary_parts.append(wind_desc)
 
         if wpi is not None:
-            if wpi < 10:
+            # Thresholds track the recalibrated effective-height WPI scale
+            # (WPI_EXCELLENT=12 .. WPI_POOR=280), not the old raw-offshore 10/25
+            # scale which labelled ordinary long-period swell "Large swells".
+            if wpi <= self.WPI_EXCELLENT:
                 summary_parts.append("Calm seas")
-            elif wpi < 25:
+            elif wpi < 120:
                 summary_parts.append("Moderate swells")
             else:
                 summary_parts.append("Large swells")

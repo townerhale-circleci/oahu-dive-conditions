@@ -2,8 +2,9 @@
 # Thresholds, schedules, and delivery preferences
 
 # Scoring thresholds
-# NOTE: These values must match the constants in src/core/scorer.py.
-# The scorer uses hardcoded constants for performance. Update both places.
+# NOTE: These are the single source of truth. DiveScorer loads them at init
+# (src/core/scorer.py::_load_config); the class-level constants there are only
+# fallback DEFAULTS used if this file is missing/unreadable. Edit values here.
 scoring:
   # Wave Power Index thresholds (effective_height² × period).
   # Calibrated for EFFECTIVE surf height (Plan 4), not raw offshore Hs.
