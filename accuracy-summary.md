@@ -2,14 +2,14 @@
 
 Model grade band vs observed NWS SRFHFO surf band per shore.
 
-**Overall hit-rate: 33% (80/246)**
+**Overall hit-rate: 37% (90/243)**
 
 | Shore | Hit-rate | n |
 |-------|----------|---|
-| East | 21% | 112 |
-| North | 93% | 46 |
+| East | 38% | 111 |
+| North | 78% | 45 |
 | South | 40% | 30 |
-| West | 2% | 58 |
+| West | 2% | 57 |
 
-**Daily mean disagreement (bands):** 2026-08-27=1.07, 2026-08-28=0.90, 2026-08-29=0.98, 2026-08-30=0.81, 2026-08-31=0.67, 2026-09-01=1.15, 2026-09-02=0.72
+**Daily mean disagreement (bands):** 2026-08-28=0.90, 2026-08-29=0.98, 2026-08-30=0.81, 2026-08-31=0.67, 2026-09-01=1.15, 2026-09-02=0.72, 2026-09-03=0.85
 
