@@ -5362,31 +5362,59 @@ date,site_id,site_name,coast,shore,pred_grade,pred_score,pred_effective_surf_ft,
 2026-11-21,ulehawa_beach,Ulehawa Beach,west_side,West,B,72.8,,,False,3.0,
 2026-11-21,waikiki_reef,Waikiki Reef,south_shore,South,C,68.0,2.53,3.61,False,3.0,
 2026-11-21,waimanalo_beach,Waimanalo Beach,windward,East,F,0.0,5.28,7.55,True,5.0,
-2026-11-22,ala_moana,Ala Moana Beach,south_shore,South,A,88.1,2.07,2.95,False,,
-2026-11-22,bellows_beach,Bellows Beach,windward,East,F,0.0,5.51,7.87,True,,
-2026-11-22,china_walls,China Walls / Spitting Caves,south_shore,South,F,0.0,2.07,2.95,True,,
-2026-11-22,cockroach_bay,Cockroach Bay / Kaupo,south_shore,South,B,80.6,2.07,2.95,False,,
-2026-11-22,coconut_island,Coconut Island (Mokuoloe),windward,East,F,39.5,5.51,7.87,False,,
-2026-11-22,diamond_head,Diamond Head / Lighthouse,south_shore,South,A,88.1,2.07,2.95,False,,
-2026-11-22,electric_beach,Electric Beach (Kahe Point),west_side,West,B,72.5,,,False,,
-2026-11-22,flat_island,Flat Island (Popoia),windward,East,F,0.0,5.51,7.87,True,,
-2026-11-22,hanauma_bay,Hanauma Bay,south_shore,South,B,81.7,2.07,2.95,False,,
-2026-11-22,hauula_beach,Hauula Beach,windward,East,F,0.0,5.51,7.87,True,,
-2026-11-22,heeia_kea,Heeia Kea Pier,windward,East,F,39.5,5.51,7.87,False,,
-2026-11-22,kahana_bay,Kahana Bay,windward,East,F,0.0,5.51,7.87,True,,
-2026-11-22,kailua_beach,Kailua Beach,windward,East,F,0.0,5.51,7.87,True,,
-2026-11-22,kaimana_beach,Kaimana Beach (Sans Souci),south_shore,South,B,75.9,2.07,2.95,False,,
-2026-11-22,kaneohe_bay,Kaneohe Bay (General),windward,East,F,39.5,5.51,7.87,False,,
-2026-11-22,ko_olina,Ko Olina Lagoons,west_side,West,B,75.6,,,False,,
-2026-11-22,lanikai_beach,Lanikai Beach,windward,East,F,0.0,5.51,7.87,True,,
-2026-11-22,magic_island,Magic Island,south_shore,South,A,89.9,2.07,2.95,False,,
-2026-11-22,maili_beach,Maili Beach (Maili Cove),west_side,West,B,72.5,,,False,,
-2026-11-22,makai_pier,Makai Research Pier,southeast,East,F,0.0,5.51,7.87,True,,
-2026-11-22,nanakuli_beach,Nanakuli Beach,west_side,West,B,72.5,,,False,,
-2026-11-22,pokai_bay,Pokai Bay,west_side,West,A,91.1,1.8,1.8,False,,
-2026-11-22,portlock_point,Portlock Point,south_shore,South,F,0.0,2.07,2.95,True,,
-2026-11-22,punaluu_beach,Punaluu Beach,windward,East,F,0.0,5.51,7.87,True,,
-2026-11-22,turtle_canyons,Turtle Canyons,south_shore,South,B,77.9,2.07,2.95,False,,
-2026-11-22,ulehawa_beach,Ulehawa Beach,west_side,West,B,72.5,,,False,,
-2026-11-22,waikiki_reef,Waikiki Reef,south_shore,South,B,77.9,2.07,2.95,False,,
-2026-11-22,waimanalo_beach,Waimanalo Beach,windward,East,F,0.0,5.51,7.87,True,,
+2026-11-22,ala_moana,Ala Moana Beach,south_shore,South,A,88.1,2.07,2.95,False,2.0,
+2026-11-22,bellows_beach,Bellows Beach,windward,East,F,0.0,5.51,7.87,True,3.0,HIGH SURF WARNING IN EFFECT FOR NORTH AND WEST FACING SHORES OF NIIHAU KAUAI OAHU MOLOKAI BIG ISLAND AND EAST FACING SHO
+2026-11-22,china_walls,China Walls / Spitting Caves,south_shore,South,F,0.0,2.07,2.95,True,2.0,
+2026-11-22,cockroach_bay,Cockroach Bay / Kaupo,south_shore,South,B,80.6,2.07,2.95,False,2.0,
+2026-11-22,coconut_island,Coconut Island (Mokuoloe),windward,East,F,39.5,5.51,7.87,False,3.0,HIGH SURF WARNING IN EFFECT FOR NORTH AND WEST FACING SHORES OF NIIHAU KAUAI OAHU MOLOKAI BIG ISLAND AND EAST FACING SHO
+2026-11-22,diamond_head,Diamond Head / Lighthouse,south_shore,South,A,88.1,2.07,2.95,False,2.0,
+2026-11-22,electric_beach,Electric Beach (Kahe Point),west_side,West,B,72.5,,,False,5.0,HIGH SURF WARNING IN EFFECT FOR NORTH AND WEST FACING SHORES OF NIIHAU KAUAI OAHU MOLOKAI BIG ISLAND AND EAST FACING SHO
+2026-11-22,flat_island,Flat Island (Popoia),windward,East,F,0.0,5.51,7.87,True,3.0,HIGH SURF WARNING IN EFFECT FOR NORTH AND WEST FACING SHORES OF NIIHAU KAUAI OAHU MOLOKAI BIG ISLAND AND EAST FACING SHO
+2026-11-22,hanauma_bay,Hanauma Bay,south_shore,South,B,81.7,2.07,2.95,False,2.0,
+2026-11-22,hauula_beach,Hauula Beach,windward,East,F,0.0,5.51,7.87,True,3.0,HIGH SURF WARNING IN EFFECT FOR NORTH AND WEST FACING SHORES OF NIIHAU KAUAI OAHU MOLOKAI BIG ISLAND AND EAST FACING SHO
+2026-11-22,heeia_kea,Heeia Kea Pier,windward,East,F,39.5,5.51,7.87,False,3.0,HIGH SURF WARNING IN EFFECT FOR NORTH AND WEST FACING SHORES OF NIIHAU KAUAI OAHU MOLOKAI BIG ISLAND AND EAST FACING SHO
+2026-11-22,kahana_bay,Kahana Bay,windward,East,F,0.0,5.51,7.87,True,3.0,HIGH SURF WARNING IN EFFECT FOR NORTH AND WEST FACING SHORES OF NIIHAU KAUAI OAHU MOLOKAI BIG ISLAND AND EAST FACING SHO
+2026-11-22,kailua_beach,Kailua Beach,windward,East,F,0.0,5.51,7.87,True,3.0,HIGH SURF WARNING IN EFFECT FOR NORTH AND WEST FACING SHORES OF NIIHAU KAUAI OAHU MOLOKAI BIG ISLAND AND EAST FACING SHO
+2026-11-22,kaimana_beach,Kaimana Beach (Sans Souci),south_shore,South,B,75.9,2.07,2.95,False,2.0,
+2026-11-22,kaneohe_bay,Kaneohe Bay (General),windward,East,F,39.5,5.51,7.87,False,3.0,HIGH SURF WARNING IN EFFECT FOR NORTH AND WEST FACING SHORES OF NIIHAU KAUAI OAHU MOLOKAI BIG ISLAND AND EAST FACING SHO
+2026-11-22,ko_olina,Ko Olina Lagoons,west_side,West,B,75.6,,,False,5.0,HIGH SURF WARNING IN EFFECT FOR NORTH AND WEST FACING SHORES OF NIIHAU KAUAI OAHU MOLOKAI BIG ISLAND AND EAST FACING SHO
+2026-11-22,lanikai_beach,Lanikai Beach,windward,East,F,0.0,5.51,7.87,True,3.0,HIGH SURF WARNING IN EFFECT FOR NORTH AND WEST FACING SHORES OF NIIHAU KAUAI OAHU MOLOKAI BIG ISLAND AND EAST FACING SHO
+2026-11-22,magic_island,Magic Island,south_shore,South,A,89.9,2.07,2.95,False,2.0,
+2026-11-22,maili_beach,Maili Beach (Maili Cove),west_side,West,B,72.5,,,False,5.0,HIGH SURF WARNING IN EFFECT FOR NORTH AND WEST FACING SHORES OF NIIHAU KAUAI OAHU MOLOKAI BIG ISLAND AND EAST FACING SHO
+2026-11-22,makai_pier,Makai Research Pier,southeast,East,F,0.0,5.51,7.87,True,3.0,HIGH SURF WARNING IN EFFECT FOR NORTH AND WEST FACING SHORES OF NIIHAU KAUAI OAHU MOLOKAI BIG ISLAND AND EAST FACING SHO
+2026-11-22,nanakuli_beach,Nanakuli Beach,west_side,West,B,72.5,,,False,5.0,HIGH SURF WARNING IN EFFECT FOR NORTH AND WEST FACING SHORES OF NIIHAU KAUAI OAHU MOLOKAI BIG ISLAND AND EAST FACING SHO
+2026-11-22,pokai_bay,Pokai Bay,west_side,West,A,91.1,1.8,1.8,False,5.0,HIGH SURF WARNING IN EFFECT FOR NORTH AND WEST FACING SHORES OF NIIHAU KAUAI OAHU MOLOKAI BIG ISLAND AND EAST FACING SHO
+2026-11-22,portlock_point,Portlock Point,south_shore,South,F,0.0,2.07,2.95,True,2.0,
+2026-11-22,punaluu_beach,Punaluu Beach,windward,East,F,0.0,5.51,7.87,True,3.0,HIGH SURF WARNING IN EFFECT FOR NORTH AND WEST FACING SHORES OF NIIHAU KAUAI OAHU MOLOKAI BIG ISLAND AND EAST FACING SHO
+2026-11-22,turtle_canyons,Turtle Canyons,south_shore,South,B,77.9,2.07,2.95,False,2.0,
+2026-11-22,ulehawa_beach,Ulehawa Beach,west_side,West,B,72.5,,,False,5.0,HIGH SURF WARNING IN EFFECT FOR NORTH AND WEST FACING SHORES OF NIIHAU KAUAI OAHU MOLOKAI BIG ISLAND AND EAST FACING SHO
+2026-11-22,waikiki_reef,Waikiki Reef,south_shore,South,B,77.9,2.07,2.95,False,2.0,
+2026-11-22,waimanalo_beach,Waimanalo Beach,windward,East,F,0.0,5.51,7.87,True,3.0,HIGH SURF WARNING IN EFFECT FOR NORTH AND WEST FACING SHORES OF NIIHAU KAUAI OAHU MOLOKAI BIG ISLAND AND EAST FACING SHO
+2026-11-23,ala_moana,Ala Moana Beach,south_shore,South,B,80.1,2.99,2.3,False,,
+2026-11-23,bellows_beach,Bellows Beach,windward,East,F,0.0,3.22,4.59,True,,
+2026-11-23,china_walls,China Walls / Spitting Caves,south_shore,South,F,0.0,2.99,2.3,True,,
+2026-11-23,cockroach_bay,Cockroach Bay / Kaupo,south_shore,South,B,73.8,2.99,2.3,False,,
+2026-11-23,coconut_island,Coconut Island (Mokuoloe),windward,East,B,71.1,3.22,4.59,False,,
+2026-11-23,diamond_head,Diamond Head / Lighthouse,south_shore,South,C,69.6,2.99,2.3,False,,
+2026-11-23,electric_beach,Electric Beach (Kahe Point),west_side,West,B,73.2,,,False,,
+2026-11-23,flat_island,Flat Island (Popoia),windward,East,F,0.0,3.22,4.59,True,,
+2026-11-23,hanauma_bay,Hanauma Bay,south_shore,South,B,74.6,2.99,2.3,False,,
+2026-11-23,hauula_beach,Hauula Beach,windward,East,F,0.0,3.22,4.59,True,,
+2026-11-23,heeia_kea,Heeia Kea Pier,windward,East,B,71.1,3.22,4.59,False,,
+2026-11-23,kahana_bay,Kahana Bay,windward,East,C,56.9,3.22,4.59,False,,
+2026-11-23,kailua_beach,Kailua Beach,windward,East,F,0.0,3.22,4.59,True,,
+2026-11-23,kaimana_beach,Kaimana Beach (Sans Souci),south_shore,South,C,69.6,2.99,2.3,False,,
+2026-11-23,kaneohe_bay,Kaneohe Bay (General),windward,East,B,71.1,3.22,4.59,False,,
+2026-11-23,ko_olina,Ko Olina Lagoons,west_side,West,B,76.6,,,False,,
+2026-11-23,lanikai_beach,Lanikai Beach,windward,East,F,0.0,3.22,4.59,True,,
+2026-11-23,magic_island,Magic Island,south_shore,South,B,84.1,2.99,2.3,False,,
+2026-11-23,maili_beach,Maili Beach (Maili Cove),west_side,West,B,73.2,,,False,,
+2026-11-23,makai_pier,Makai Research Pier,southeast,East,B,74.2,3.22,4.59,False,,
+2026-11-23,nanakuli_beach,Nanakuli Beach,west_side,West,B,73.2,,,False,,
+2026-11-23,pokai_bay,Pokai Bay,west_side,West,A,94.1,1.14,1.14,False,,
+2026-11-23,portlock_point,Portlock Point,south_shore,South,F,0.0,2.99,2.3,True,,
+2026-11-23,punaluu_beach,Punaluu Beach,windward,East,F,0.0,3.22,4.59,True,,
+2026-11-23,turtle_canyons,Turtle Canyons,south_shore,South,B,73.6,2.99,2.3,False,,
+2026-11-23,ulehawa_beach,Ulehawa Beach,west_side,West,B,73.2,,,False,,
+2026-11-23,waikiki_reef,Waikiki Reef,south_shore,South,B,73.6,2.99,2.3,False,,
+2026-11-23,waimanalo_beach,Waimanalo Beach,windward,East,F,0.0,3.22,4.59,True,,
